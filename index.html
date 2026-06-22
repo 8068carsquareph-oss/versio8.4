@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>8068 CAR SQUARE | POS System v7.8</title>
+    <title>8068 CAR SQUARE | POS System v8.0</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -65,23 +65,22 @@
         .receipt-58mm .item .name { display: inline-block; width: 70%; }
         .receipt-58mm .item .price { display: inline-block; width: 30%; text-align: right; }
         .day-col { min-width: 70px; text-align: center; }
-        .split-total { background: rgba(0,212,255,0.1); }
-        .monthly-grand { background: rgba(0,255,136,0.1); }
-        .commission-update { animation: flashGreen 0.5s ease; }
-        .transaction-row { transition: all 0.2s; }
-        .transaction-row:hover { background: rgba(0,212,255,0.05); }
-        .calendar-day { display: inline-block; width: 36px; height: 36px; line-height: 36px; text-align: center; border-radius: 50%; margin: 2px; font-size: 12px; }
-        .calendar-day.has-transaction { background: rgba(0,212,255,0.2); color: #00d4ff; font-weight: bold; }
-        .calendar-day.has-commission { background: rgba(0,255,136,0.2); color: #00ff88; font-weight: bold; }
+        .report-card { background: rgba(10,10,10,0.8); border: 1px solid rgba(0,212,255,0.15); border-radius: 1rem; padding: 1.5rem; transition: all 0.3s; }
+        .report-card:hover { border-color: rgba(0,212,255,0.4); }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { padding: 6px 4px; text-align: center; border-radius: 8px; font-size: 12px; transition: all 0.2s; }
+        .calendar-day:hover { transform: scale(1.05); }
+        .calendar-day.has-sales { background: rgba(0,212,255,0.15); color: #00d4ff; font-weight: bold; }
+        .calendar-day.has-commission { background: rgba(0,255,136,0.15); color: #00ff88; font-weight: bold; }
         .calendar-day.today { border: 2px solid #00d4ff; }
-        @keyframes flashGreen {
-            0% { background: rgba(0,255,136,0.4); }
-            100% { background: transparent; }
-        }
+        .calendar-header { color: #888; font-size: 11px; text-transform: uppercase; text-align: center; padding: 4px; }
+        .stat-number { font-size: 28px; font-weight: bold; }
+        .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
         @media print {
             .no-print { display: none; }
             .receipt-58mm { width: 58mm; margin: 0; padding: 4px; }
             body { background: white; }
+            .report-card { border: 1px solid #ddd; }
         }
         @media (max-width: 768px) { .admin-grid { grid-template-columns: 1fr; } .admin-sidebar { border-radius: 1rem; } }
     </style>
@@ -180,9 +179,7 @@
         ],
         currentUser: null,
         nextIds: { transaction: 100, customer: 50, expense: 20, service: 50, openService: 1 },
-        commissionMatrix: initializeCommissionMatrix(),
-        weeklyCommissionCache: null,
-        monthlyCommissionCache: null
+        commissionMatrix: initializeCommissionMatrix()
     };
 
     function getDescription(name) {
@@ -213,7 +210,7 @@
         return "Specialty";
     }
 
-    const saved = localStorage.getItem("8068_enterprise_v7_8");
+    const saved = localStorage.getItem("8068_enterprise_v8");
     if(saved) {
         try {
             const parsed = JSON.parse(saved);
@@ -237,10 +234,8 @@
     }
 
     function saveToLocal() {
-        localStorage.setItem("8068_enterprise_v7_8", JSON.stringify(appData));
+        localStorage.setItem("8068_enterprise_v8", JSON.stringify(appData));
         localStorage.setItem("8068_system_last_saved", new Date().toISOString());
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
     }
 
     function getCommissionAmount(serviceName, size, tierPercent) {
@@ -256,7 +251,7 @@
 
     // ======================== STATE ========================
     let currentView = "dashboard";
-    let currentAdminPanel = "transactions";
+    let currentAdminPanel = "reports";
     let posCart = [];
     let selectedCustomer = null;
     let vehicleInfo = { plate: "", model: "", size: "Medium" };
@@ -266,19 +261,18 @@
     let cashTendered = 0;
     let cartRemarks = "";
     let showLogin = true;
+    let reportPeriod = 'daily';
 
     function generateReceiptNo() { return "INV-" + new Date().getFullYear() + "-" + (appData.nextIds.transaction++); }
 
     // ======================== RECALCULATE STAFF COMMISSIONS ========================
     function recalculateStaffCommissions() {
-        // Reset all staff commissions
         appData.staff.forEach(s => {
             s.totalCommission = 0;
             s.jobsCompleted = 0;
             s.salesGenerated = 0;
         });
 
-        // Recalculate from all transactions
         appData.transactions.forEach(t => {
             if (t.staffCommissions) {
                 Object.entries(t.staffCommissions).forEach(([staffId, data]) => {
@@ -292,53 +286,7 @@
             }
         });
 
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
         saveToLocal();
-    }
-
-    // ======================== UPDATE TRANSACTION ========================
-    function updateTransactionAndCommissions(transactionId, updatedData) {
-        const txIndex = appData.transactions.findIndex(t => t.id === transactionId);
-        if (txIndex === -1) return false;
-
-        // Store old transaction data for commission recalculation
-        const oldTx = { ...appData.transactions[txIndex] };
-        
-        // Update transaction
-        appData.transactions[txIndex] = { ...appData.transactions[txIndex], ...updatedData };
-
-        // Recalculate all staff commissions from scratch
-        recalculateStaffCommissions();
-
-        // Clear caches
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        saveToLocal();
-        renderApp();
-        return true;
-    }
-
-    // ======================== DELETE TRANSACTION ========================
-    function deleteTransactionAndCommission(transactionId) {
-        if (!confirm("Delete this transaction? This will also remove associated commissions.")) return false;
-
-        const txIndex = appData.transactions.findIndex(t => t.id === transactionId);
-        if (txIndex === -1) return false;
-
-        // Remove transaction
-        appData.transactions.splice(txIndex, 1);
-
-        // Recalculate all staff commissions
-        recalculateStaffCommissions();
-
-        // Clear caches
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        saveToLocal();
-        renderApp();
-        alert("✅ Transaction deleted and commissions updated!");
-        return true;
     }
 
     // ======================== 58MM RECEIPT ========================
@@ -450,8 +398,8 @@
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="mx-auto max-h-20 mb-4">` : ''}
                     <h2 class="text-3xl font-bold glow-text">${appData.systemSettings.companyName}</h2>
                     <p class="text-gray-400 text-sm">${appData.systemSettings.tagline}</p>
-                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v7.8</p>
-                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-sync"></i> Real-time Commission Updates</p>
+                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v8.0</p>
+                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-chart-line"></i> Report Summaries with Calendar</p>
                 </div>
                 <div class="space-y-4">
                     <div><label class="text-gray-400">Username</label><input type="text" id="loginUser" class="w-full bg-gray-800 p-3 rounded border border-gray-700" placeholder="Enter username" value="owner"></div>
@@ -471,676 +419,468 @@
         const pass = document.getElementById('loginPass')?.value;
         if(login(user, pass)) {
             alert(`Welcome ${appData.currentUser.name}! (${appData.currentUser.role})`);
-            appData.weeklyCommissionCache = null;
-            appData.monthlyCommissionCache = null;
         } else {
             alert("Invalid credentials!");
         }
     };
 
-    // ======================== TRANSACTION MANAGEMENT ========================
-    function renderAdminTransactions() {
+    // ======================== REPORT SUMMARIES WITH CALENDAR ========================
+    function renderReportSummaries() {
         if(showLogin) return renderLogin();
         
-        // Recalculate commissions to ensure accuracy
-        recalculateStaffCommissions();
-        
-        let txHtml = appData.transactions.map(t => `
-            <tr class="border-b border-gray-700 transaction-row">
-                <td class="py-2 font-mono text-xs">${t.id}</td>
-                <td class="editable-field cursor-pointer" onclick="editTransactionDate('${t.id}')">${new Date(t.date).toLocaleString()}</td>
-                <td class="editable-field cursor-pointer" onclick="editTransactionCustomer('${t.id}')">${t.customer}</td>
-                <td>${t.vehicle}</td>
-                <td>${t.items.map(i => `${i.serviceName} (${i.variant})`).join(', ')}</td>
-                <td>${t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned'}</td>
-                <td class="text-green-400 font-bold editable-field cursor-pointer" onclick="editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
-                <td>${t.paymentMethod || 'Cash'}</td>
-                <td>
-                    <button onclick="editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit Full"><i class="fas fa-edit"></i></button>
-                    <button onclick="deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
-                    <button onclick="printReceiptFromTransaction('${t.id}')" class="action-btn bg-green-600 text-white hover:bg-green-700" title="Print Receipt"><i class="fas fa-print"></i></button>
-                </td>
-            </tr>
-        `).join('');
-
-        const totalIncome = appData.transactions.reduce((s,t)=>s+t.total,0);
-        const totalCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
-
-        return `<div class="card-premium p-5">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold"><i class="fas fa-receipt"></i> Transaction Management</h3>
-                <div class="flex gap-2">
-                    <span class="text-sm text-gray-400">Total Transactions: ${appData.transactions.length}</span>
-                    <span class="text-sm text-green-400">Total Revenue: ₱${totalIncome.toFixed(2)}</span>
-                    <span class="text-sm text-yellow-400">Total Commissions: ₱${totalCommission.toFixed(2)}</span>
-                    <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add Manual</button>
-                    <button onclick="refreshTransactions()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-sync"></i> Refresh</button>
-                </div>
-            </div>
-            <p class="text-xs text-gray-400 mb-3"><i class="fas fa-info-circle text-cyan-400"></i> Click any field to edit individually. Edit/Delete updates commissions automatically.</p>
-            <div class="overflow-x-auto max-h-96 overflow-y-auto">
-                <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
-                        <tr>
-                            <th class="text-left py-2">Receipt</th>
-                            <th class="text-left py-2">Date & Time</th>
-                            <th class="text-left py-2">Customer</th>
-                            <th class="text-left py-2">Vehicle</th>
-                            <th class="text-left py-2">Service</th>
-                            <th class="text-left py-2">Staff</th>
-                            <th class="text-right py-2">Total</th>
-                            <th class="text-left py-2">Payment</th>
-                            <th class="text-center py-2">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${txHtml || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No transactions found</td></tr>'}
-                    </tbody>
-                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
-                        <tr>
-                            <td colspan="6" class="py-2 text-right">TOTALS:</td>
-                            <td class="text-right text-green-400">₱${totalIncome.toFixed(2)}</td>
-                            <td colspan="2"></td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-            <div class="mt-2 text-xs text-gray-400">
-                <i class="fas fa-sync text-cyan-400"></i> Editing or deleting transactions automatically updates staff commissions and weekly reports.
-            </div>
-        </div>`;
-    }
-
-    // Transaction Edit Functions
-    window.editTransactionAmount = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newAmt = parseFloat(prompt("Edit amount:", t.total));
-            if(!isNaN(newAmt) && newAmt > 0) {
-                updateTransactionAndCommissions(id, { total: newAmt, subtotal: newAmt });
-                alert("✅ Amount updated! Commissions recalculated.");
-            }
-        }
-    };
-
-    window.editTransactionCustomer = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newName = prompt("Edit customer:", t.customer);
-            if(newName !== null) {
-                updateTransactionAndCommissions(id, { customer: newName });
-                alert("✅ Customer updated!");
-            }
-        }
-    };
-
-    window.editTransactionDate = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newDate = prompt("Edit date (YYYY-MM-DD):", new Date(t.date).toISOString().slice(0,10));
-            if(newDate) {
-                updateTransactionAndCommissions(id, { date: new Date(newDate).toISOString() });
-                alert("✅ Date updated!");
-            }
-        }
-    };
-
-    window.editTransactionFull = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(!t) return;
-        
-        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
-            <h3 class="text-xl font-bold mb-4">Edit Transaction</h3>
-            <div class="space-y-3">
-                <div><label class="text-gray-400">Customer</label><input type="text" id="editTxCustomer" class="w-full bg-gray-800 p-2 rounded" value="${t.customer}"></div>
-                <div><label class="text-gray-400">Amount</label><input type="number" id="editTxAmount" class="w-full bg-gray-800 p-2 rounded" value="${t.total}" step="0.01"></div>
-                <div><label class="text-gray-400">Vehicle</label><input type="text" id="editTxVehicle" class="w-full bg-gray-800 p-2 rounded" value="${t.vehicle}"></div>
-                <div><label class="text-gray-400">Plate</label><input type="text" id="editTxPlate" class="w-full bg-gray-800 p-2 rounded" value="${t.plate}"></div>
-                <div><label class="text-gray-400">Payment Method</label><select id="editTxPayment" class="w-full bg-gray-800 p-2 rounded">
-                    <option ${t.paymentMethod==="Cash"?"selected":""}>Cash</option>
-                    <option ${t.paymentMethod==="GCash"?"selected":""}>GCash</option>
-                    <option ${t.paymentMethod==="Maya"?"selected":""}>Maya</option>
-                    <option ${t.paymentMethod==="Credit Card"?"selected":""}>Credit Card</option>
-                    <option ${t.paymentMethod==="Bank Transfer"?"selected":""}>Bank Transfer</option>
-                </select></div>
-                <div class="flex gap-3 mt-4">
-                    <button onclick="confirmEditTransaction('${id}')" class="btn-neon flex-1 p-2 rounded">Update</button>
-                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
-                </div>
-            </div>
-        </div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    };
-
-    window.confirmEditTransaction = (id) => {
-        const customer = document.getElementById('editTxCustomer')?.value;
-        const amount = parseFloat(document.getElementById('editTxAmount')?.value);
-        const vehicle = document.getElementById('editTxVehicle')?.value;
-        const plate = document.getElementById('editTxPlate')?.value;
-        const payment = document.getElementById('editTxPayment')?.value;
-        
-        const updates = {};
-        if(customer) updates.customer = customer;
-        if(!isNaN(amount) && amount > 0) { updates.total = amount; updates.subtotal = amount; }
-        if(vehicle) updates.vehicle = vehicle;
-        if(plate) updates.plate = plate;
-        if(payment) updates.paymentMethod = payment;
-        
-        updateTransactionAndCommissions(id, updates);
-        closeAdminModal();
-        alert("✅ Transaction updated! Commissions recalculated.");
-        renderApp();
-    };
-
-    window.printReceiptFromTransaction = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) print58mmReceipt(t);
-    };
-
-    window.showAddTransactionModal = () => {
-        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
-            <h3 class="text-xl font-bold mb-4">Add Manual Transaction</h3>
-            <div class="space-y-3">
-                <div><label class="text-gray-400">Customer</label><input type="text" id="txCustomerInput" class="w-full bg-gray-800 p-2 rounded" value="Walk-in Customer"></div>
-                <div><label class="text-gray-400">Amount</label><input type="number" id="txAmountInput" class="w-full bg-gray-800 p-2 rounded" step="0.01"></div>
-                <div><label class="text-gray-400">Vehicle</label><input type="text" id="txVehicleInput" class="w-full bg-gray-800 p-2 rounded" placeholder="Toyota Vios"></div>
-                <div><label class="text-gray-400">Plate</label><input type="text" id="txPlateInput" class="w-full bg-gray-800 p-2 rounded"></div>
-                <div><label class="text-gray-400">Payment Method</label><select id="txPaymentInput" class="w-full bg-gray-800 p-2 rounded">
-                    <option>Cash</option><option>GCash</option><option>Maya</option><option>Credit Card</option><option>Bank Transfer</option>
-                </select></div>
-                <div class="flex gap-3 mt-4">
-                    <button onclick="confirmAddTransaction()" class="btn-neon flex-1 p-2 rounded">Add</button>
-                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
-                </div>
-            </div>
-        </div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    };
-
-    window.confirmAddTransaction = () => {
-        const customer = document.getElementById('txCustomerInput')?.value || "Walk-in Customer";
-        const amount = parseFloat(document.getElementById('txAmountInput')?.value);
-        const vehicle = document.getElementById('txVehicleInput')?.value || "N/A";
-        const plate = document.getElementById('txPlateInput')?.value || "N/A";
-        const payment = document.getElementById('txPaymentInput')?.value || "Cash";
-        
-        if(isNaN(amount) || amount <= 0) { alert("Valid amount required!"); return; }
-        
-        const transaction = {
-            id: generateReceiptNo(),
-            date: new Date().toISOString(),
-            customer: customer,
-            vehicle: vehicle,
-            plate: plate,
-            items: [{ serviceName: "Manual Entry", variant: "Standard", price: amount, quantity: 1, total: amount, assignedStaff: [], remarks: "Manual transaction" }],
-            subtotal: amount,
-            discount: 0,
-            loyaltyUsed: 0,
-            total: amount,
-            paymentMethod: payment,
-            cashTendered: amount,
-            change: 0,
-            remarks: "Manual transaction added via admin"
-        };
-        
-        appData.transactions.unshift(transaction);
-        saveToLocal();
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        closeAdminModal();
-        renderApp();
-        alert("✅ Transaction added!");
-    };
-
-    window.refreshTransactions = () => {
-        recalculateStaffCommissions();
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        renderApp();
-        alert("✅ Transactions refreshed! Commissions recalculated.");
-    };
-
-    // ======================== WEEKLY COMMISSION REPORT WITH CALENDAR DATES ========================
-    function generateWeeklyCommissionReport() {
-        if (appData.weeklyCommissionCache) return appData.weeklyCommissionCache;
-
         const today = new Date();
-        const currentDay = today.getDay();
+        const currentMonth = today.getMonth();
+        const currentYear = today.getFullYear();
+        
+        // Daily Report
+        const todayStr = today.toISOString().slice(0,10);
+        const dailyTx = appData.transactions.filter(t => t.date.startsWith(todayStr));
+        const dailySales = dailyTx.reduce((s,t)=>s+t.total,0);
+        const dailyExpenses = appData.expenses.filter(e => e.date === todayStr).reduce((s,e)=>s+e.amount,0);
+        const dailyCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
+        
+        // Weekly Report
         const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - currentDay);
-        weekStart.setHours(0, 0, 0, 0);
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        weekEnd.setHours(23, 59, 59, 999);
-
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const dayDates = dayNames.map((_, i) => {
-            const d = new Date(weekStart);
-            d.setDate(weekStart.getDate() + i);
-            return d;
-        });
+        weekStart.setDate(today.getDate() - today.getDay());
+        const weekStartStr = weekStart.toISOString().slice(0,10);
+        const weekTx = appData.transactions.filter(t => t.date >= weekStartStr);
+        const weeklySales = weekTx.reduce((s,t)=>s+t.total,0);
+        const weeklyExpenses = appData.expenses.filter(e => e.date >= weekStartStr).reduce((s,e)=>s+e.amount,0);
         
-        const reportData = appData.staff.map(staff => {
-            const staffTransactions = appData.transactions.filter(t => {
-                const tDate = new Date(t.date);
-                return tDate >= weekStart && tDate <= weekEnd && t.staffCommissions && t.staffCommissions[staff.id];
-            });
-
-            const dailyTotals = {};
-            const dailyTxCount = {};
-            dayNames.forEach(day => { dailyTotals[day] = 0; dailyTxCount[day] = 0; });
-            
-            staffTransactions.forEach(t => {
-                const tDate = new Date(t.date);
-                const dayName = dayNames[tDate.getDay()];
-                const commission = t.staffCommissions[staff.id]?.commission || 0;
-                dailyTotals[dayName] = (dailyTotals[dayName] || 0) + commission;
-                dailyTxCount[dayName] = (dailyTxCount[dayName] || 0) + 1;
-            });
-
-            const sunToTue = dailyTotals.Sunday + dailyTotals.Monday + dailyTotals.Tuesday;
-            const wedToSat = dailyTotals.Wednesday + dailyTotals.Thursday + dailyTotals.Friday + dailyTotals.Saturday;
-            const monthlyGrand = Object.values(dailyTotals).reduce((sum, val) => sum + val, 0);
-
-            return {
-                staffId: staff.id,
-                name: staff.name,
-                position: staff.position,
-                commissionTier: staff.commissionTier,
-                jobsCompleted: staff.jobsCompleted || 0,
-                salesGenerated: staff.salesGenerated || 0,
-                dailyTotals: dailyTotals,
-                dailyTxCount: dailyTxCount,
-                sunToTue: sunToTue,
-                wedToSat: wedToSat,
-                monthlyGrand: monthlyGrand,
-                totalCommission: staff.totalCommission || 0,
-                transactionCount: staffTransactions.length
-            };
-        });
-
-        const totals = {
-            jobsCompleted: reportData.reduce((sum, s) => sum + s.jobsCompleted, 0),
-            salesGenerated: reportData.reduce((sum, s) => sum + s.salesGenerated, 0),
-            dailyTotals: {},
-            sunToTue: 0,
-            wedToSat: 0,
-            monthlyGrand: 0
-        };
-        dayNames.forEach(day => {
-            totals.dailyTotals[day] = reportData.reduce((sum, s) => sum + (s.dailyTotals[day] || 0), 0);
-        });
-        totals.sunToTue = reportData.reduce((sum, s) => sum + s.sunToTue, 0);
-        totals.wedToSat = reportData.reduce((sum, s) => sum + s.wedToSat, 0);
-        totals.monthlyGrand = reportData.reduce((sum, s) => sum + s.monthlyGrand, 0);
-
-        appData.weeklyCommissionCache = { reportData, totals, weekStart, weekEnd, dayNames, dayDates };
-        return appData.weeklyCommissionCache;
-    }
-
-    function renderWeeklyCommissionReport() {
-        if(showLogin) return renderLogin();
+        // Monthly Report
+        const monthTx = appData.transactions.filter(t => new Date(t.date).getMonth() === currentMonth && new Date(t.date).getFullYear() === currentYear);
+        const monthlySales = monthTx.reduce((s,t)=>s+t.total,0);
+        const monthlyExpenses = appData.expenses.filter(e => new Date(e.date).getMonth() === currentMonth && new Date(e.date).getFullYear() === currentYear).reduce((s,e)=>s+e.amount,0);
         
-        const { reportData, totals, weekStart, weekEnd, dayNames, dayDates } = generateWeeklyCommissionReport();
+        // Yearly Report
+        const yearTx = appData.transactions.filter(t => new Date(t.date).getFullYear() === currentYear);
+        const yearlySales = yearTx.reduce((s,t)=>s+t.total,0);
+        const yearlyExpenses = appData.expenses.filter(e => new Date(e.date).getFullYear() === currentYear).reduce((s,e)=>s+e.amount,0);
         
-        // Calendar header with dates
-        const calendarHeader = dayDates.map((d, i) => {
-            const isToday = d.toDateString() === new Date().toDateString();
-            return `<th class="text-center py-2 day-col ${isToday ? 'text-green-400' : ''}">${dayNames[i].substring(0,3)}<br><span class="text-xs ${isToday ? 'text-green-400' : 'text-gray-500'}">${d.getDate()}</span></th>`;
-        }).join('');
+        // Calendar for current month
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+        const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+        const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });
+        
+        let calendarHtml = '';
+        // Empty cells for first week
+        for (let i = 0; i < firstDay; i++) {
+            calendarHtml += `<div class="calendar-day"></div>`;
+        }
+        // Days of the month
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const hasSales = appData.transactions.some(t => t.date.startsWith(dateStr));
+            const isToday = d === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+            let classes = 'calendar-day';
+            if (hasSales) classes += ' has-sales';
+            if (isToday) classes += ' today';
+            const daySales = appData.transactions.filter(t => t.date.startsWith(dateStr)).reduce((s,t)=>s+t.total,0);
+            calendarHtml += `<div class="${classes}" title="${dateStr}: ₱${daySales.toFixed(2)}">${d}</div>`;
+        }
+        
+        // Commission Calendar
+        let commissionCalendarHtml = '';
+        for (let i = 0; i < firstDay; i++) {
+            commissionCalendarHtml += `<div class="calendar-day"></div>`;
+        }
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const hasCommission = appData.transactions.some(t => t.date.startsWith(dateStr) && t.staffCommissions);
+            const isToday = d === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+            let classes = 'calendar-day';
+            if (hasCommission) classes += ' has-commission';
+            if (isToday) classes += ' today';
+            const dayCommission = appData.transactions.filter(t => t.date.startsWith(dateStr) && t.staffCommissions)
+                .reduce((sum, t) => sum + Object.values(t.staffCommissions).reduce((s, st) => s + (st.commission || 0), 0), 0);
+            commissionCalendarHtml += `<div class="${classes}" title="${dateStr}: ₱${dayCommission.toFixed(2)}">${d}</div>`;
+        }
 
-        let tableHtml = reportData.map(s => `
-            <tr class="border-b border-gray-700 hover:bg-gray-800 transition">
-                <td class="py-2 font-semibold">${s.name}</td>
-                <td>${s.position}</td>
-                <td class="text-center"><span class="commission-badge">${s.commissionTier}%</span></td>
-                <td class="text-center">${s.jobsCompleted}</td>
-                <td class="text-right">₱${s.salesGenerated.toFixed(2)}</td>
-                ${dayNames.map(day => `<td class="text-center text-cyan-400">₱${s.dailyTotals[day]?.toFixed(2) || '0.00'}</td>`).join('')}
-                <td class="text-center text-yellow-400 font-bold">₱${s.sunToTue.toFixed(2)}</td>
-                <td class="text-center text-yellow-400 font-bold">₱${s.wedToSat.toFixed(2)}</td>
-                <td class="text-center text-green-400 font-bold">₱${s.monthlyGrand.toFixed(2)}</td>
-            </tr>
-        `).join('');
-
-        return `<div class="card-premium p-6">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-2xl font-bold"><i class="fas fa-calendar-week"></i> Weekly Commission Report</h2>
-                    <p class="text-xs text-gray-400 mt-1">Week: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}</p>
+        return `<div class="grid lg:grid-cols-2 gap-6">
+            <!-- Report Summaries -->
+            <div class="card-premium p-6">
+                <h2 class="text-2xl font-bold mb-4"><i class="fas fa-chart-line"></i> Report Summaries</h2>
+                
+                <!-- Period Selector -->
+                <div class="flex gap-2 mb-4 flex-wrap">
+                    <button onclick="setReportPeriod('daily')" class="px-3 py-1 rounded ${reportPeriod === 'daily' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Daily</button>
+                    <button onclick="setReportPeriod('weekly')" class="px-3 py-1 rounded ${reportPeriod === 'weekly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Weekly</button>
+                    <button onclick="setReportPeriod('monthly')" class="px-3 py-1 rounded ${reportPeriod === 'monthly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Monthly</button>
+                    <button onclick="setReportPeriod('yearly')" class="px-3 py-1 rounded ${reportPeriod === 'yearly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Yearly</button>
                 </div>
-                <div class="flex gap-2 flex-wrap">
-                    <button onclick="exportWeeklyCommissionExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
-                    <button onclick="printWeeklyCommission()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print</button>
-                    <button onclick="refreshWeeklyCommission()" class="bg-green-600 px-4 py-2 rounded text-sm"><i class="fas fa-sync"></i> Refresh</button>
+                
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">${reportPeriod === 'daily' ? 'Today' : reportPeriod === 'weekly' ? 'This Week' : reportPeriod === 'monthly' ? 'This Month' : 'This Year'} Sales</div>
+                        <div class="stat-number text-green-400">₱${reportPeriod === 'daily' ? dailySales : reportPeriod === 'weekly' ? weeklySales : reportPeriod === 'monthly' ? monthlySales : yearlySales}</div>
+                    </div>
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">${reportPeriod === 'daily' ? 'Today' : reportPeriod === 'weekly' ? 'This Week' : reportPeriod === 'monthly' ? 'This Month' : 'This Year'} Expenses</div>
+                        <div class="stat-number text-red-400">₱${reportPeriod === 'daily' ? dailyExpenses : reportPeriod === 'weekly' ? weeklyExpenses : reportPeriod === 'monthly' ? monthlyExpenses : yearlyExpenses}</div>
+                    </div>
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">${reportPeriod === 'daily' ? 'Today' : reportPeriod === 'weekly' ? 'This Week' : reportPeriod === 'monthly' ? 'This Month' : 'This Year'} Commission</div>
+                        <div class="stat-number text-yellow-400">₱${dailyCommission.toFixed(2)}</div>
+                    </div>
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">${reportPeriod === 'daily' ? 'Today' : reportPeriod === 'weekly' ? 'This Week' : reportPeriod === 'monthly' ? 'This Month' : 'This Year'} Profit</div>
+                        <div class="stat-number text-cyan-400">₱${(reportPeriod === 'daily' ? dailySales - dailyExpenses : reportPeriod === 'weekly' ? weeklySales - weeklyExpenses : reportPeriod === 'monthly' ? monthlySales - monthlyExpenses : yearlySales - yearlyExpenses).toFixed(2)}</div>
+                    </div>
+                </div>
+                
+                <!-- Calendar -->
+                <div class="bg-gray-800 p-3 rounded-lg">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-sm font-bold">${monthName}</span>
+                        <span class="text-xs text-gray-400">${reportPeriod === 'daily' ? 'Daily View' : reportPeriod === 'weekly' ? 'Weekly View' : reportPeriod === 'monthly' ? 'Monthly View' : 'Yearly View'}</span>
+                    </div>
+                    <div class="calendar-grid">
+                        <div class="calendar-header">Sun</div>
+                        <div class="calendar-header">Mon</div>
+                        <div class="calendar-header">Tue</div>
+                        <div class="calendar-header">Wed</div>
+                        <div class="calendar-header">Thu</div>
+                        <div class="calendar-header">Fri</div>
+                        <div class="calendar-header">Sat</div>
+                        ${calendarHtml}
+                    </div>
+                    <div class="flex gap-4 mt-3 text-xs">
+                        <span><span class="inline-block w-3 h-3 rounded bg-cyan-500/20 border border-cyan-500"></span> Has Sales</span>
+                        <span><span class="inline-block w-3 h-3 rounded border border-cyan-400"></span> Today</span>
+                    </div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="flex gap-2 mt-4 flex-wrap">
+                    <button onclick="printReportSummary()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print Report</button>
+                    <button onclick="exportReportSummaryExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
                 </div>
             </div>
             
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
-                        <tr>
-                            <th class="text-left py-2">Staff Name</th>
-                            <th class="text-left py-2">Position</th>
-                            <th class="text-center py-2">Tier</th>
-                            <th class="text-center py-2">Jobs</th>
-                            <th class="text-right py-2">Sales</th>
-                            ${calendarHeader}
-                            <th class="text-center py-2 text-yellow-400">Sun-Tue</th>
-                            <th class="text-center py-2 text-yellow-400">Wed-Sat</th>
-                            <th class="text-center py-2 text-green-400">Weekly Grand</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableHtml || '<tr><td colspan="16" class="text-center py-8 text-gray-400">No data for this week</td></tr>'}
-                        <tr class="border-t-2 border-cyan-400 bg-gray-800 font-bold">
-                            <td colspan="4" class="py-2 text-right">TOTALS:</td>
-                            <td class="text-right">₱${totals.salesGenerated.toFixed(2)}</td>
-                            ${dayNames.map(day => `<td class="text-center text-cyan-400">₱${totals.dailyTotals[day]?.toFixed(2) || '0.00'}</td>`).join('')}
-                            <td class="text-center text-yellow-400">₱${totals.sunToTue.toFixed(2)}</td>
-                            <td class="text-center text-yellow-400">₱${totals.wedToSat.toFixed(2)}</td>
-                            <td class="text-center text-green-400">₱${totals.monthlyGrand.toFixed(2)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="mt-3 text-xs text-gray-400">
-                <i class="fas fa-info-circle text-cyan-400"></i> 
-                <span class="text-yellow-400">Sun-Tue:</span> Total Commission from Sunday to Tuesday | 
-                <span class="text-yellow-400">Wed-Sat:</span> Total Commission from Wednesday to Saturday |
-                <span class="text-green-400">Weekly Grand:</span> Total Commission for the full week
+            <!-- Staff Commission Report -->
+            <div class="card-premium p-6">
+                <h2 class="text-2xl font-bold mb-4"><i class="fas fa-file-invoice-dollar"></i> Staff Commission Report</h2>
+                
+                <!-- Summary Cards -->
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">Total Staff</div>
+                        <div class="stat-number text-cyan-400">${appData.staff.length}</div>
+                    </div>
+                    <div class="bg-gray-800 p-3 rounded-lg text-center">
+                        <div class="stat-label">Total Commission</div>
+                        <div class="stat-number text-yellow-400">₱${appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0).toFixed(2)}</div>
+                    </div>
+                </div>
+                
+                <!-- Commission Calendar -->
+                <div class="bg-gray-800 p-3 rounded-lg">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-sm font-bold">${monthName} - Commission Activity</span>
+                        <span class="text-xs text-gray-400">Days with commissions</span>
+                    </div>
+                    <div class="calendar-grid">
+                        <div class="calendar-header">Sun</div>
+                        <div class="calendar-header">Mon</div>
+                        <div class="calendar-header">Tue</div>
+                        <div class="calendar-header">Wed</div>
+                        <div class="calendar-header">Thu</div>
+                        <div class="calendar-header">Fri</div>
+                        <div class="calendar-header">Sat</div>
+                        ${commissionCalendarHtml}
+                    </div>
+                    <div class="flex gap-4 mt-3 text-xs">
+                        <span><span class="inline-block w-3 h-3 rounded bg-green-500/20 border border-green-500"></span> Has Commissions</span>
+                        <span><span class="inline-block w-3 h-3 rounded border border-cyan-400"></span> Today</span>
+                    </div>
+                </div>
+                
+                <!-- Staff Commission Table -->
+                <div class="mt-4 max-h-48 overflow-y-auto">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-gray-900 border-b border-yellow-400">
+                            <tr><th class="text-left py-1">Staff</th><th class="text-center py-1">Tier</th><th class="text-right py-1">Jobs</th><th class="text-right py-1">Commission</th></tr>
+                        </thead>
+                        <tbody>
+                            ${appData.staff.map(s => `
+                                <tr class="border-b border-gray-700">
+                                    <td class="py-1">${s.name}</td>
+                                    <td class="text-center"><span class="commission-badge">${s.commissionTier}%</span></td>
+                                    <td class="text-right">${s.jobsCompleted || 0}</td>
+                                    <td class="text-right text-green-400">₱${(s.totalCommission || 0).toFixed(2)}</td>
+                                </tr>
+                            `).join('')}
+                            <tr class="border-t-2 border-yellow-400 font-bold">
+                                <td colspan="3" class="py-1 text-right">TOTAL:</td>
+                                <td class="text-right text-green-400">₱${appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0).toFixed(2)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div class="flex gap-2 mt-4 flex-wrap">
+                    <button onclick="printCommissionReport()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print Commission</button>
+                    <button onclick="exportCommissionReportExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
+                </div>
             </div>
         </div>`;
     }
 
-    window.refreshWeeklyCommission = () => {
-        appData.weeklyCommissionCache = null;
-        recalculateStaffCommissions();
+    window.setReportPeriod = (period) => {
+        reportPeriod = period;
         renderApp();
-        alert('✅ Weekly commission report refreshed!');
     };
 
-    // ======================== MONTHLY COMMISSION CALENDAR REPORT ========================
-    function generateMonthlyCommissionReport() {
-        if (appData.monthlyCommissionCache) return appData.monthlyCommissionCache;
+    // ======================== PRINT REPORT FUNCTIONS ========================
+    window.printReportSummary = () => {
+        const printContent = document.querySelector('.card-premium').cloneNode(true);
+        const win = window.open('', '_blank');
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
+        win.document.write(`<html><head><title>Report Summary</title><style>
+            body{font-family:monospace;padding:20px;background:white;color:black;}
+            .center{text-align:center;}
+            table{width:100%;border-collapse:collapse;font-size:11px;}
+            th,td{border:1px solid #ddd;padding:6px;}
+            th{background:#f0f0f0;}
+            .header{margin-bottom:20px;}
+            .stat-number{font-size:24px;}
+            .stat-label{font-size:11px;color:#666;}
+        </style></head><body>
+            ${logoHtml}
+            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Report Summary - ${new Date().toLocaleDateString()}</p></div>
+            ${printContent.innerHTML}
+        </body></html>`);
+        win.document.close();
+        win.print();
+    };
 
-        const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        const daysInMonth = monthEnd.getDate();
-
-        const reportData = appData.staff.map(staff => {
-            const staffTransactions = appData.transactions.filter(t => {
-                const tDate = new Date(t.date);
-                return tDate >= monthStart && tDate <= monthEnd && t.staffCommissions && t.staffCommissions[staff.id];
-            });
-
-            const dailyTotals = {};
-            for (let d = 1; d <= daysInMonth; d++) {
-                dailyTotals[d] = 0;
-            }
-            
-            staffTransactions.forEach(t => {
-                const tDate = new Date(t.date);
-                const day = tDate.getDate();
-                const commission = t.staffCommissions[staff.id]?.commission || 0;
-                dailyTotals[day] = (dailyTotals[day] || 0) + commission;
-            });
-
-            const totalCommission = staffTransactions.reduce((sum, t) => {
-                return sum + (t.staffCommissions[staff.id]?.commission || 0);
-            }, 0);
-
-            return {
-                staffId: staff.id,
-                name: staff.name,
-                position: staff.position,
-                commissionTier: staff.commissionTier,
-                jobsCompleted: staff.jobsCompleted || 0,
-                salesGenerated: staff.salesGenerated || 0,
-                dailyTotals: dailyTotals,
-                totalCommission: totalCommission,
-                transactionCount: staffTransactions.length
-            };
-        });
-
-        // Get all days with transactions for calendar highlighting
-        const daysWithTransactions = {};
-        const daysWithCommissions = {};
-        for (let d = 1; d <= daysInMonth; d++) {
-            daysWithTransactions[d] = appData.transactions.some(t => {
-                const tDate = new Date(t.date);
-                return tDate.getDate() === d && tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear();
-            });
-            daysWithCommissions[d] = appData.transactions.some(t => {
-                const tDate = new Date(t.date);
-                return tDate.getDate() === d && tDate.getMonth() === now.getMonth() && tDate.getFullYear() === now.getFullYear() && t.staffCommissions;
-            });
-        }
-
-        appData.monthlyCommissionCache = { 
-            reportData, 
-            monthStart, 
-            monthEnd, 
-            daysInMonth, 
-            daysWithTransactions, 
-            daysWithCommissions,
-            month: now.toLocaleString('default', { month: 'long', year: 'numeric' })
-        };
-        return appData.monthlyCommissionCache;
-    }
-
-    function renderMonthlyCommissionReport() {
-        if(showLogin) return renderLogin();
-        
-        const { reportData, monthStart, monthEnd, daysInMonth, daysWithTransactions, daysWithCommissions, month } = generateMonthlyCommissionReport();
-        
-        // Calendar view
-        let calendarHtml = '';
-        for (let d = 1; d <= daysInMonth; d++) {
-            const hasTx = daysWithTransactions[d];
-            const hasComm = daysWithCommissions[d];
-            const isToday = new Date().getDate() === d && new Date().getMonth() === monthStart.getMonth();
-            let classes = 'calendar-day';
-            if (hasComm) classes += ' has-commission';
-            else if (hasTx) classes += ' has-transaction';
-            if (isToday) classes += ' today';
-            calendarHtml += `<span class="${classes}" title="${hasComm ? 'Has commissions' : hasTx ? 'Has transactions' : 'No activity'}">${d}</span>`;
-        }
-
-        // Summary table
-        let tableHtml = reportData.map(s => `
-            <tr class="border-b border-gray-700 hover:bg-gray-800 transition">
-                <td class="py-2 font-semibold">${s.name}</td>
-                <td>${s.position}</td>
-                <td class="text-center"><span class="commission-badge">${s.commissionTier}%</span></td>
-                <td class="text-center">${s.jobsCompleted}</td>
-                <td class="text-right">₱${s.salesGenerated.toFixed(2)}</td>
-                <td class="text-right text-green-400 font-bold">₱${s.totalCommission.toFixed(2)}</td>
-            </tr>
-        `).join('');
-
-        const totalMonthlyCommission = reportData.reduce((sum, s) => sum + s.totalCommission, 0);
-
-        return `<div class="card-premium p-6">
-            <div class="flex justify-between items-center mb-4">
-                <div>
-                    <h2 class="text-2xl font-bold"><i class="fas fa-calendar-alt"></i> Monthly Commission Calendar</h2>
-                    <p class="text-xs text-gray-400 mt-1">${month} | ${monthStart.toLocaleDateString()} - ${monthEnd.toLocaleDateString()}</p>
-                </div>
-                <div class="flex gap-2">
-                    <button onclick="exportMonthlyCommissionExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
-                    <button onclick="printMonthlyCommission()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print</button>
-                </div>
-            </div>
-            
-            <div class="bg-gray-800 p-4 rounded-lg mb-4">
-                <div class="text-sm text-gray-400 mb-2">Calendar View</div>
-                <div class="flex flex-wrap gap-1">
-                    ${calendarHtml}
-                </div>
-                <div class="flex gap-4 mt-2 text-xs">
-                    <span><span class="inline-block w-3 h-3 rounded" style="background:rgba(0,255,136,0.2)"></span> Has Commissions</span>
-                    <span><span class="inline-block w-3 h-3 rounded" style="background:rgba(0,212,255,0.2)"></span> Has Transactions</span>
-                    <span><span class="inline-block w-3 h-3 rounded border border-cyan-400"></span> Today</span>
-                </div>
-            </div>
-            
-            <div class="overflow-x-auto max-h-80 overflow-y-auto">
-                <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-purple-400">
-                        <tr>
-                            <th class="text-left py-2">Staff Name</th>
-                            <th class="text-left py-2">Position</th>
-                            <th class="text-center py-2">Tier</th>
-                            <th class="text-center py-2">Jobs</th>
-                            <th class="text-right py-2">Sales</th>
-                            <th class="text-right py-2 text-green-400">Monthly Commission</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableHtml || '<tr><td colspan="6" class="text-center py-8 text-gray-400">No data for this month</td></tr>'}
-                        <tr class="border-t-2 border-purple-400 bg-gray-800 font-bold">
-                            <td colspan="5" class="py-2 text-right">TOTAL MONTHLY COMMISSION:</td>
-                            <td class="text-right text-green-400 text-lg">₱${totalMonthlyCommission.toFixed(2)}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>`;
-    }
+    window.printCommissionReport = () => {
+        const printContent = document.querySelector('.card-premium').cloneNode(true);
+        const win = window.open('', '_blank');
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
+        win.document.write(`<html><head><title>Commission Report</title><style>
+            body{font-family:monospace;padding:20px;background:white;color:black;}
+            .center{text-align:center;}
+            table{width:100%;border-collapse:collapse;font-size:11px;}
+            th,td{border:1px solid #ddd;padding:6px;}
+            th{background:#f0f0f0;}
+            .header{margin-bottom:20px;}
+        </style></head><body>
+            ${logoHtml}
+            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Commission Report - ${new Date().toLocaleDateString()}</p></div>
+            ${printContent.innerHTML}
+        </body></html>`);
+        win.document.close();
+        win.print();
+    };
 
     // ======================== EXPORT FUNCTIONS ========================
-    function exportWeeklyCommissionExcel() {
-        const { reportData, totals, weekStart, weekEnd, dayNames } = generateWeeklyCommissionReport();
+    window.exportReportSummaryExcel = () => {
         const wb = XLSX.utils.book_new();
-
+        const today = new Date();
+        const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });
+        
         let data = [
-            [`${appData.systemSettings.companyName} - WEEKLY COMMISSION REPORT`],
-            [`Week: ${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}`],
-            [`Date Generated: ${new Date().toLocaleString()}`],
+            [`${appData.systemSettings.companyName} - Report Summary`],
+            [`Generated: ${new Date().toLocaleString()}`],
+            [`Period: ${reportPeriod.toUpperCase()}`],
             [],
-            ['Staff Name', 'Position', 'Tier', 'Jobs', 'Sales', ...dayNames, 'Sun-Tue Total', 'Wed-Sat Total', 'Weekly Grand Total']
-        ];
-
-        reportData.forEach(s => {
-            data.push([
-                s.name, s.position, `${s.commissionTier}%`, s.jobsCompleted, s.salesGenerated.toFixed(2),
-                ...dayNames.map(day => s.dailyTotals[day]?.toFixed(2) || '0.00'),
-                s.sunToTue.toFixed(2), s.wedToSat.toFixed(2), s.monthlyGrand.toFixed(2)
-            ]);
-        });
-
-        data.push([
-            'TOTALS', '', '', totals.jobsCompleted, totals.salesGenerated.toFixed(2),
-            ...dayNames.map(day => totals.dailyTotals[day]?.toFixed(2) || '0.00'),
-            totals.sunToTue.toFixed(2), totals.wedToSat.toFixed(2), totals.monthlyGrand.toFixed(2)
-        ]);
-
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        const colWidths = [];
-        for (let i = 0; i < data[0].length; i++) {
-            let maxWidth = 12;
-            for (let row of data) {
-                if (row[i] !== undefined && row[i] !== null) {
-                    const val = String(row[i]);
-                    maxWidth = Math.max(maxWidth, val.length + 3);
-                }
-            }
-            colWidths.push({ wch: Math.min(maxWidth, 45) });
-        }
-        ws['!cols'] = colWidths;
-
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; R++) {
-            for (let C = range.s.c; C <= range.e.c; C++) {
-                const addr = XLSX.utils.encode_cell({ r: R, c: C });
-                if (!ws[addr]) continue;
-                if (!ws[addr].s) ws[addr].s = {};
-                ws[addr].s.alignment = { wrapText: true, vertical: 'top' };
-                if (R === 0 || R === 1 || R === 2 || R === 4 || R === data.length - 1) {
-                    ws[addr].s.font = { bold: true };
-                }
-            }
-        }
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Weekly Commission');
-        const fileName = `weekly_commission_${weekStart.toISOString().slice(0,10)}.xlsx`;
-        XLSX.writeFile(wb, fileName);
-        alert(`✅ Weekly commission report exported as: ${fileName}`);
-    }
-
-    function exportMonthlyCommissionExcel() {
-        const { reportData, month, totalMonthlyCommission } = generateMonthlyCommissionReport();
-        const wb = XLSX.utils.book_new();
-
-        let data = [
-            [`${appData.systemSettings.companyName} - MONTHLY COMMISSION REPORT`],
-            [`Month: ${month}`],
-            [`Date Generated: ${new Date().toLocaleString()}`],
+            ['Summary'],
+            ['Metric', 'Amount'],
+            ['Total Sales', appData.transactions.reduce((s,t)=>s+t.total,0)],
+            ['Total Expenses', appData.expenses.reduce((s,e)=>s+e.amount,0)],
+            ['Net Profit', appData.transactions.reduce((s,t)=>s+t.total,0) - appData.expenses.reduce((s,e)=>s+e.amount,0)],
+            ['Total Commission', appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0)],
             [],
-            ['Staff Name', 'Position', 'Tier', 'Jobs Completed', 'Sales Generated', 'Monthly Commission']
+            ['Daily Breakdown'],
+            ['Date', 'Sales', 'Expenses', 'Commission']
         ];
-
-        reportData.forEach(s => {
-            data.push([
-                s.name, s.position, `${s.commissionTier}%`, s.jobsCompleted, s.salesGenerated.toFixed(2), s.totalCommission.toFixed(2)
-            ]);
-        });
-
-        data.push([
-            'TOTALS', '', '', reportData.reduce((sum, s) => sum + s.jobsCompleted, 0), 
-            reportData.reduce((sum, s) => sum + s.salesGenerated, 0).toFixed(2), totalMonthlyCommission.toFixed(2)
-        ]);
-
+        
+        // Get last 30 days
+        for (let i = 29; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(today.getDate() - i);
+            const dateStr = d.toISOString().slice(0,10);
+            const daySales = appData.transactions.filter(t => t.date.startsWith(dateStr)).reduce((s,t)=>s+t.total,0);
+            const dayExpenses = appData.expenses.filter(e => e.date === dateStr).reduce((s,e)=>s+e.amount,0);
+            const dayCommission = appData.transactions.filter(t => t.date.startsWith(dateStr) && t.staffCommissions)
+                .reduce((sum, t) => sum + Object.values(t.staffCommissions).reduce((s, st) => s + (st.commission || 0), 0), 0);
+            data.push([d.toLocaleDateString(), daySales, dayExpenses, dayCommission]);
+        }
+        
         const ws = XLSX.utils.aoa_to_sheet(data);
-        const colWidths = [];
-        for (let i = 0; i < data[0].length; i++) {
-            let maxWidth = 12;
-            for (let row of data) {
-                if (row[i] !== undefined && row[i] !== null) {
-                    const val = String(row[i]);
-                    maxWidth = Math.max(maxWidth, val.length + 3);
-                }
-            }
-            colWidths.push({ wch: Math.min(maxWidth, 45) });
-        }
+        const colWidths = data[0].map((_, i) => ({ wch: 20 }));
         ws['!cols'] = colWidths;
-
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; R++) {
-            for (let C = range.s.c; C <= range.e.c; C++) {
-                const addr = XLSX.utils.encode_cell({ r: R, c: C });
-                if (!ws[addr]) continue;
-                if (!ws[addr].s) ws[addr].s = {};
-                ws[addr].s.alignment = { wrapText: true, vertical: 'top' };
-                if (R === 0 || R === 1 || R === 2 || R === 4 || R === data.length - 1) {
-                    ws[addr].s.font = { bold: true };
-                }
-            }
-        }
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Monthly Commission');
-        const fileName = `monthly_commission_${new Date().toISOString().slice(0,7)}.xlsx`;
-        XLSX.writeFile(wb, fileName);
-        alert(`✅ Monthly commission report exported as: ${fileName}`);
-    }
-
-    window.printWeeklyCommission = () => {
-        const printContent = document.querySelector('.card-premium').cloneNode(true);
-        const win = window.open('', '_blank');
-        win.document.write(`<html><head><title>Weekly Commission Report</title><style>body{font-family:monospace;padding:20px;background:white;color:black;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;}.center{text-align:center;}</style></head><body><h2>${appData.systemSettings.companyName}</h2><p>Weekly Commission Report</p>${printContent.innerHTML}</body></html>`);
-        win.document.close();
-        win.print();
+        XLSX.utils.book_append_sheet(wb, ws, 'Report Summary');
+        XLSX.writeFile(wb, `report_summary_${new Date().toISOString().slice(0,10)}.xlsx`);
+        alert('✅ Report Summary exported to Excel!');
     };
 
-    window.printMonthlyCommission = () => {
-        const printContent = document.querySelector('.card-premium').cloneNode(true);
-        const win = window.open('', '_blank');
-        win.document.write(`<html><head><title>Monthly Commission Report</title><style>body{font-family:monospace;padding:20px;background:white;color:black;}table{width:100%;border-collapse:collapse;}th,td{border:1px solid #ddd;padding:6px;}.center{text-align:center;}</style></head><body><h2>${appData.systemSettings.companyName}</h2><p>Monthly Commission Report</p>${printContent.innerHTML}</body></html>`);
-        win.document.close();
-        win.print();
+    window.exportCommissionReportExcel = () => {
+        const wb = XLSX.utils.book_new();
+        let data = [
+            [`${appData.systemSettings.companyName} - Commission Report`],
+            [`Generated: ${new Date().toLocaleString()}`],
+            [],
+            ['Staff Name', 'Position', 'Commission Tier', 'Jobs Completed', 'Sales Generated', 'Total Commission'],
+            ...appData.staff.map(s => [
+                s.name, s.position, `${s.commissionTier}%`, s.jobsCompleted || 0, s.salesGenerated || 0, s.totalCommission || 0
+            ]),
+            [],
+            ['TOTAL', '', '', appData.staff.reduce((sum, s) => sum + (s.jobsCompleted || 0), 0), 
+             appData.staff.reduce((sum, s) => sum + (s.salesGenerated || 0), 0), 
+             appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0)]
+        ];
+        
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const colWidths = data[0].map((_, i) => ({ wch: 20 }));
+        ws['!cols'] = colWidths;
+        XLSX.utils.book_append_sheet(wb, ws, 'Commission Report');
+        XLSX.writeFile(wb, `commission_report_${new Date().toISOString().slice(0,10)}.xlsx`);
+        alert('✅ Commission Report exported to Excel!');
     };
+
+    // ======================== DASHBOARD ========================
+    function renderDashboard() {
+        if(showLogin) return renderLogin();
+        
+        const today = new Date().toISOString().slice(0,10);
+        const todayTx = appData.transactions.filter(t => t.date.startsWith(today));
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+        const weekStartStr = weekStart.toISOString().slice(0,10);
+        const weekTx = appData.transactions.filter(t => t.date >= weekStartStr);
+        const monthTx = appData.transactions.filter(t => new Date(t.date).getMonth() === new Date().getMonth());
+        
+        const dailySales = todayTx.reduce((s,t)=>s+t.total,0);
+        const weeklySales = weekTx.reduce((s,t)=>s+t.total,0);
+        const monthlySales = monthTx.reduce((s,t)=>s+t.total,0);
+        const dailyExpenses = appData.expenses.filter(e => e.date === today).reduce((s,e)=>s+e.amount,0);
+        const dailyCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
+        const openCount = appData.openServices.filter(s => s.status === 'pending' || s.status === 'in-progress').length;
+        const lowStock = appData.inventory.filter(i => i.quantity <= i.reorderLevel).length;
+
+        const serviceCount = {};
+        appData.transactions.forEach(t => { t.items.forEach(item => { serviceCount[item.serviceName] = (serviceCount[item.serviceName] || 0) + item.quantity; }); });
+        const sortedServices = Object.entries(serviceCount).sort((a,b) => b[1] - a[1]).slice(0,5);
+        const topServicesHtml = sortedServices.map(([name, count]) => `
+            <div class="flex justify-between items-center border-b border-gray-700/50 py-1">
+                <span class="text-sm">${name}</span>
+                <span class="text-sm text-cyan-400">${count} sold</span>
+            </div>
+        `).join('');
+
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<img src="${appData.systemSettings.companyLogo}" class="company-logo inline-block mr-2" alt="Logo" style="max-height:40px;">` : '';
+
+        return `<div class="flex justify-between items-center mb-4">
+            <div class="flex items-center gap-3">
+                ${logoHtml}
+                <div>
+                    <span class="text-sm text-gray-400"><i class="fas fa-clock"></i> <span id="liveClock" class="live-clock">Loading...</span></span>
+                    <span class="text-xs text-cyan-400 ml-3">👤 ${appData.currentUser?.name} (${appData.currentUser?.role})</span>
+                    <button onclick="logout()" class="text-xs text-red-400 ml-3 hover:text-red-300"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                </div>
+            </div>
+            <div class="text-sm text-gray-400">${appData.systemSettings.businessHours}</div>
+        </div>
+        
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+            <div class="stat-card text-center">
+                <div class="stat-label">Today's Sales</div>
+                <div class="stat-number text-green-400">₱${dailySales.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${todayTx.length} transactions</div>
+            </div>
+            <div class="stat-card text-center">
+                <div class="stat-label">Weekly Sales</div>
+                <div class="stat-number text-cyan-400">₱${weeklySales.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${weekTx.length} transactions</div>
+            </div>
+            <div class="stat-card text-center">
+                <div class="stat-label">Monthly Sales</div>
+                <div class="stat-number text-yellow-400">₱${monthlySales.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${monthTx.length} transactions</div>
+            </div>
+            <div class="stat-card text-center">
+                <div class="stat-label">Today's Expenses</div>
+                <div class="stat-number text-red-400">₱${dailyExpenses.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${appData.expenses.filter(e=>e.date===today).length} entries</div>
+            </div>
+            <div class="stat-card text-center">
+                <div class="stat-label">Today's Commission</div>
+                <div class="stat-number text-purple-400">₱${dailyCommission.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${appData.staff.length} staff</div>
+            </div>
+            <div class="stat-card text-center">
+                <div class="stat-label">Open Services</div>
+                <div class="stat-number text-orange-400">${openCount}</div>
+                <div class="text-xs text-gray-500">${lowStock} low stock items</div>
+            </div>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-6">
+            <div class="card-premium p-5">
+                <h3 class="text-lg font-bold mb-3"><i class="fas fa-chart-line"></i> Sales Overview</h3>
+                <canvas id="salesChart" height="200"></canvas>
+            </div>
+            <div class="card-premium p-5">
+                <h3 class="text-lg font-bold mb-3"><i class="fas fa-star"></i> Top Services</h3>
+                <div class="max-h-48 overflow-y-auto">
+                    ${topServicesHtml || '<div class="text-gray-400 text-center py-4">No service data yet</div>'}
+                </div>
+                <div class="mt-3 flex gap-2 flex-wrap">
+                    <button onclick="navigate('admin')" class="btn-neon px-3 py-1 rounded text-sm">Manage Services</button>
+                    <button onclick="navigate('reports')" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-chart-bar"></i> Reports</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-6 grid lg:grid-cols-4 gap-4">
+            <div class="card-premium p-4 text-center">
+                <div class="text-gray-400 text-sm">Total Revenue</div>
+                <div class="text-2xl font-bold text-green-400">₱${appData.transactions.reduce((s,t)=>s+t.total,0).toFixed(2)}</div>
+            </div>
+            <div class="card-premium p-4 text-center">
+                <div class="text-gray-400 text-sm">Total Expenses</div>
+                <div class="text-2xl font-bold text-red-400">₱${appData.expenses.reduce((s,e)=>s+e.amount,0).toFixed(2)}</div>
+            </div>
+            <div class="card-premium p-4 text-center">
+                <div class="text-gray-400 text-sm">Total Commissions</div>
+                <div class="text-2xl font-bold text-yellow-400">₱${appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0).toFixed(2)}</div>
+            </div>
+            <div class="card-premium p-4 text-center">
+                <div class="text-gray-400 text-sm">Net Profit</div>
+                <div class="text-2xl font-bold text-cyan-400">₱${(appData.transactions.reduce((s,t)=>s+t.total,0) - appData.expenses.reduce((s,e)=>s+e.amount,0)).toFixed(2)}</div>
+            </div>
+        </div>
+
+        <script>
+            setTimeout(function() {
+                const ctx = document.getElementById('salesChart')?.getContext('2d');
+                if(ctx) {
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+                            datasets: [{
+                                label: 'Sales (₱)',
+                                data: [${weekTx.slice(0,7).map(t=>t.total).join(',')}],
+                                borderColor: '#00d4ff',
+                                tension: 0.3,
+                                fill: true,
+                                backgroundColor: 'rgba(0,212,255,0.1)'
+                            }]
+                        }
+                    });
+                }
+            }, 100);
+        <\/script>`;
+    }
 
     // ======================== OPEN SERVICES ========================
     function createOpenService(customer, vehicle, plate, items, staff, total, remarks) {
@@ -1173,15 +913,12 @@
                 processOpenServiceCommission(service);
             }
             saveToLocal();
-            appData.weeklyCommissionCache = null;
-            appData.monthlyCommissionCache = null;
             renderApp();
         }
     }
 
     function processOpenServiceCommission(service) {
         if (service.commissionProcessed) return;
-
         if (!service.staff || service.staff.length === 0) return;
 
         const staffCommissionMap = new Map();
@@ -1246,8 +983,6 @@
         service.commissionProcessed = true;
         service.transactionId = transaction.id;
 
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
         saveToLocal();
     }
 
@@ -1293,8 +1028,6 @@
         print58mmReceipt(transaction);
         
         appData.openServices = appData.openServices.filter(s => s.id !== id);
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
         renderApp();
     }
 
@@ -1302,8 +1035,6 @@
         if(confirm("Delete this open service?")) {
             appData.openServices = appData.openServices.filter(s => s.id !== id);
             saveToLocal();
-            appData.weeklyCommissionCache = null;
-            appData.monthlyCommissionCache = null;
             renderApp();
         }
     }
@@ -1333,7 +1064,7 @@
                             <span class="status-badge ${s.status === 'pending' ? 'status-pending' : 'status-in-progress'}">${s.status.toUpperCase()}</span>
                             <div class="flex flex-col gap-1 mt-2">
                                 <button onclick="updateOpenServiceStatus('${s.id}', 'in-progress')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700 text-xs">Start</button>
-                                <button onclick="updateOpenServiceStatus('${s.id}', 'completed')" class="action-btn bg-green-600 text-white hover:bg-green-700 text-xs">Complete & Auto-Commission</button>
+                                <button onclick="updateOpenServiceStatus('${s.id}', 'completed')" class="action-btn bg-green-600 text-white hover:bg-green-700 text-xs">Complete</button>
                                 <button onclick="deleteOpenService('${s.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700 text-xs">Delete</button>
                             </div>
                         </div>
@@ -1427,6 +1158,198 @@
     };
     
     window.closePaymentModal = () => document.getElementById('paymentModal')?.remove();
+
+    // ======================== POS ========================
+    function renderPOS() {
+        if(showLogin) return renderLogin();
+        if(!hasRole(['Owner', 'Manager', 'Cashier'])) {
+            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Cashier or higher role required.</p></div>`;
+        }
+        
+        const activeServices = appData.services.filter(s => s.isActive !== false);
+        const serviceCategories = [...new Set(activeServices.map(s => s.category))];
+        
+        let servicesHtml = '';
+        serviceCategories.forEach(cat => {
+            const catServices = activeServices.filter(s => s.category === cat);
+            if(catServices.length) {
+                servicesHtml += `<div class="mb-6"><h3 class="text-lg font-bold text-cyan-400 mb-2"><span class="category-badge">${cat}</span></h3><div class="grid grid-cols-2 md:grid-cols-3 gap-2">`;
+                catServices.forEach(service => {
+                    servicesHtml += `<div class="service-btn bg-gray-900 p-3 rounded-lg" onclick="showSizeModal(${service.id})">
+                        <div class="font-bold text-sm">${service.name}</div>
+                        <div class="text-xs text-gray-400">${service.desc.substring(0, 35)}</div>
+                        <div class="text-cyan-300 text-xs mt-1">From ₱${Object.values(service.prices)[0]}</div>
+                    </div>`;
+                });
+                servicesHtml += `</div></div>`;
+            }
+        });
+
+        const cartHtml = posCart.map((item, idx) => `<div class="flex justify-between items-center border-b border-gray-700 py-3"><div class="flex-1"><div class="font-semibold">${item.serviceName} (${item.variant})</div><div class="text-xs text-cyan-400">💰 ${item.assignedStaff?.map(s => `${s.name}: ₱${s.splitCommission.toFixed(2)}`).join(', ') || 'No staff'}</div><div class="text-xs text-gray-400">📝 ${item.remarks || 'None'}</div><div>₱${item.price} × ${item.quantity} = <strong>₱${item.total}</strong></div></div><div><input type="number" min="1" value="${item.quantity}" class="w-16 bg-gray-700 rounded text-sm p-1" onchange="updateCartQuantity(${idx}, this.value)"><div class="mt-2"><i class="fas fa-pen text-yellow-400 cursor-pointer mr-2" onclick="addItemRemark(${idx})"></i><i class="fas fa-users text-cyan-400 cursor-pointer mr-2" onclick="reassignStaff(${idx}, '${item.serviceName}', '${item.variant}')"></i><i class="fas fa-trash text-red-500 cursor-pointer" onclick="removeCartItem(${idx})"></i></div></div></div>`).join('');
+        
+        return `<div class="grid lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 card-premium p-5 max-h-[75vh] overflow-y-auto">
+                <h2 class="text-2xl font-bold mb-4 neon-glow p-2 rounded">Service Menu</h2>
+                ${servicesHtml}
+            </div>
+            <div class="card-premium p-5">
+                <h3 class="text-xl font-bold mb-3">Shopping Cart (${posCart.length})</h3>
+                <div>
+                    <input placeholder="Plate Number" id="plateInput" class="w-full bg-gray-800 p-2 rounded my-1" value="${vehicleInfo.plate}">
+                    <input placeholder="Vehicle Model" id="modelInput" class="w-full bg-gray-800 p-2 rounded my-1" value="${vehicleInfo.model}">
+                    <button onclick="selectCustomerPopup()" class="bg-blue-600 p-2 rounded w-full">${selectedCustomer ? selectedCustomer.name : "Select Customer"}</button>
+                </div>
+                <div class="max-h-52 overflow-y-auto my-3">${cartHtml || "<div class='text-gray-500 text-center py-4'>Cart is empty</div>"}</div>
+                <div><textarea placeholder="Overall Remarks..." id="cartRemarksInput" class="w-full bg-gray-800 p-2 rounded my-1 text-sm" rows="2">${cartRemarks}</textarea></div>
+                <div>Subtotal: ₱${calcSubtotal()}</div>
+                <div>Discount: <input id="discountInput" value="${discount}" class="w-24 bg-gray-700 rounded px-2" step="10"></div>
+                <div>Loyalty: <input id="loyaltyUse" value="${loyaltyPointsUsed}" class="w-24 bg-gray-700 rounded"></div>
+                <div class="font-bold text-xl text-cyan-400">Total: ₱${calcTotal()}</div>
+                <select id="paymentMethod" class="bg-gray-800 p-2 w-full rounded my-2">
+                    ${appData.systemSettings.defaultPaymentMethods.map(m => `<option>${m}</option>`).join('')}
+                </select>
+                <input placeholder="Cash Tendered" id="cashTenderedInput" class="bg-gray-800 p-2 w-full rounded" type="number">
+                <button onclick="completeSaleWrapper()" class="btn-neon w-full p-3 rounded-xl mt-2">Complete Sale</button>
+                <button onclick="saveAsOpenService()" class="bg-orange-600 w-full p-2 rounded-xl mt-2"><i class="fas fa-clock"></i> Save as Open Service</button>
+            </div>
+        </div>`;
+    }
+
+    window.saveAsOpenService = () => {
+        if(posCart.length === 0) { alert("Please add services to cart!"); return; }
+        const customer = selectedCustomer ? selectedCustomer.name : prompt("Customer name:") || "Walk-in Customer";
+        const vehicle = vehicleInfo.model || prompt("Vehicle model:") || "N/A";
+        const plate = vehicleInfo.plate || prompt("Plate number:") || "N/A";
+        const total = calcTotal();
+        const staff = posCart.flatMap(i => i.assignedStaff || []).filter((v, i, a) => a.indexOf(v) === i);
+        
+        createOpenService(customer, vehicle, plate, posCart, staff, total, cartRemarks);
+        alert(`✅ Service saved as Open Service!\nTotal: ₱${total.toFixed(2)}`);
+        
+        posCart = [];
+        selectedCustomer = null;
+        vehicleInfo = { plate: "", model: "", size: "Medium" };
+        discount = 0;
+        loyaltyPointsUsed = 0;
+        cartRemarks = "";
+        renderApp();
+    };
+
+    // ======================== POS HELPERS ========================
+    function showSizeModal(serviceId) {
+        const service = appData.services.find(s => s.id === serviceId);
+        if(!service.isActive) { alert("This service is currently inactive."); return; }
+        let sizeHtml = service.sizes.map(size => `<div class="size-option bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-cyan-500 hover:text-black transition-all m-2 inline-block" data-size="${size}" data-price="${service.prices[size]}"><span class="font-bold">${size}</span><br><span class="text-cyan-300">₱${service.prices[size]}</span></div>`).join('');
+        let modalHtml = `<div id="sizeModal" class="modal"><div class="modal-content"><h3 class="text-xl font-bold mb-2">${service.name}</h3><p class="text-sm text-gray-400 mb-4">${service.desc}</p><p class="text-cyan-400 mb-3">Select Vehicle Size:</p><div id="sizeOptions" class="flex flex-wrap gap-2 mb-4 justify-center">${sizeHtml}</div><div><label class="text-sm text-gray-400">Item Remarks:</label><input type="text" id="itemRemarkInput" class="w-full bg-gray-800 p-2 rounded mt-1" placeholder="Special instructions..."></div><div class="flex gap-3 mt-4"><button onclick="confirmAddToCartWithSize(${serviceId})" class="btn-neon flex-1 p-2 rounded">Add to Cart</button><button onclick="closeSizeModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button></div></div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.querySelectorAll('.size-option').forEach(opt => { opt.addEventListener('click', function() { document.querySelectorAll('.size-option').forEach(o => o.classList.remove('bg-cyan-500', 'text-black')); document.querySelectorAll('.size-option').forEach(o => o.classList.add('bg-gray-800')); this.classList.remove('bg-gray-800'); this.classList.add('bg-cyan-500', 'text-black'); this.dataset.selected = "true"; }); });
+    }
+
+    window.confirmAddToCartWithSize = (serviceId) => {
+        const selectedSizeElem = document.querySelector('.size-option[data-selected="true"]') || document.querySelector('.size-option');
+        if(!selectedSizeElem) { alert("Please select a size first!"); return; }
+        const size = selectedSizeElem.dataset.size;
+        const price = parseFloat(selectedSizeElem.dataset.price);
+        const service = appData.services.find(s => s.id === serviceId);
+        const remark = document.getElementById('itemRemarkInput')?.value || "";
+        posCart.push({ serviceId, serviceName: service.name, variant: size, price, quantity: 1, total: price, assignedStaff: [], remarks: remark });
+        closeSizeModal();
+        showStaffAssignmentModal(posCart.length - 1, service.name, size);
+        renderApp();
+    };
+
+    function showStaffAssignmentModal(cartIndex, serviceName, size) {
+        const activeStaff = appData.staff.filter(s => s.isActive);
+        let staffOptionsHtml = activeStaff.map(s => { 
+            const fullCommission = getCommissionAmount(serviceName, size, s.commissionTier);
+            return `<label class="flex items-center justify-between p-3 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 mb-2"><div class="flex items-center space-x-3"><input type="checkbox" value="${s.id}" class="staff-checkbox w-5 h-5" data-name="${s.name}" data-tier="${s.commissionTier}" data-full-comm="${fullCommission}"><span><strong>${s.name}</strong> - ${s.position}</span></div><div class="text-right"><span class="commission-badge">${s.commissionTier}%</span><div class="text-xs text-green-400">₱${fullCommission}</div></div></label>`; 
+        }).join('');
+        let modalHtml = `<div id="staffModal" class="modal"><div class="modal-content"><h3 class="text-xl font-bold mb-2">Assign Staff: ${serviceName} (${size})</h3><p class="text-sm text-yellow-400 mb-2">Commission Split Rule: ${appData.systemSettings.commissionSplitRule}</p><div id="staffCheckboxes" class="space-y-2 mb-4">${staffOptionsHtml}</div><div id="commissionPreview" class="bg-gray-900 p-3 rounded-lg mb-3 text-sm"><span id="previewText">Select staff to see split breakdown</span></div><div class="flex gap-3"><button onclick="confirmStaffAssignment(${cartIndex}, '${serviceName}', '${size}')" class="btn-neon flex-1 p-2 rounded">Confirm</button><button onclick="closeStaffModal()" class="bg-gray-700 flex-1 p-2 rounded">Skip</button></div></div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        document.querySelectorAll('.staff-checkbox').forEach(cb => cb.addEventListener('change', updateSplitPreview));
+        function updateSplitPreview() { const selected = []; document.querySelectorAll('.staff-checkbox:checked').forEach(cb => selected.push({ name: cb.dataset.name, tier: parseInt(cb.dataset.tier), fullCommission: parseFloat(cb.dataset.full_comm) })); if(selected.length === 1) document.getElementById('previewText').innerHTML = `<div class="text-green-400">💰 1 Staff - Full Commission</div><div>${selected[0].name}: ₱${selected[0].fullCommission}</div>`; else if(selected.length === 2) document.getElementById('previewText').innerHTML = `<div class="text-green-400">👥 2 Staff - EQUAL SPLIT (50/50)</div><div>${selected[0].name}: ₱${(selected[0].fullCommission/2).toFixed(2)} | ${selected[1].name}: ₱${(selected[1].fullCommission/2).toFixed(2)}</div><div class="text-cyan-400">Total: ₱${(selected[0].fullCommission/2 + selected[1].fullCommission/2).toFixed(2)}</div>`; else document.getElementById('previewText').innerHTML = '<span class="text-gray-400">Select 1 or 2 staff members</span>'; }
+    }
+
+    window.confirmStaffAssignment = (cartIndex, serviceName, size) => {
+        const selected = []; document.querySelectorAll('.staff-checkbox:checked').forEach(cb => selected.push({ id: parseInt(cb.value), name: cb.dataset.name, commissionTier: parseInt(cb.dataset.tier), fullCommission: getCommissionAmount(serviceName, size, parseInt(cb.dataset.tier)) }));
+        if(selected.length > 0) { const assignedWithSplit = selected.map(s => ({ ...s, splitCommission: selected.length === 2 ? s.fullCommission / 2 : s.fullCommission })); posCart[cartIndex].assignedStaff = assignedWithSplit; }
+        closeStaffModal(); renderApp();
+    };
+
+    window.closeStaffModal = () => document.getElementById('staffModal')?.remove();
+    window.closeSizeModal = () => document.getElementById('sizeModal')?.remove();
+    window.addItemRemark = (idx) => { const remark = prompt("Enter remark for this service:", posCart[idx].remarks || ""); if(remark !== null) { posCart[idx].remarks = remark; renderApp(); } };
+    window.reassignStaff = (idx, name, size) => showStaffAssignmentModal(idx, name, size);
+
+    function removeCartItem(idx) { posCart.splice(idx,1); renderApp(); }
+    function updateCartQuantity(idx, qty) { if(qty>0) { posCart[idx].quantity = qty; posCart[idx].total = posCart[idx].price * qty; renderApp(); } }
+    function calcSubtotal() { return posCart.reduce((sum,item)=> sum + item.total,0); }
+    function calcTotal() { let total = calcSubtotal() - discount - loyaltyPointsUsed; return total > 0 ? total : 0; }
+
+    function completeSaleWrapper() {
+        selectedPayment = document.getElementById('paymentMethod')?.value || "Cash";
+        cashTendered = parseFloat(document.getElementById('cashTenderedInput')?.value || 0);
+        discount = parseFloat(document.getElementById('discountInput')?.value || 0);
+        loyaltyPointsUsed = parseFloat(document.getElementById('loyaltyUse')?.value || 0);
+        cartRemarks = document.getElementById('cartRemarksInput')?.value || "";
+        completeSale();
+    }
+
+    function completeSale() {
+        if(posCart.length === 0) { alert("Please add services to cart!"); return; }
+        const total = calcTotal();
+        if(selectedPayment === "Cash" && cashTendered < total) { alert("Insufficient cash!"); return; }
+        
+        const staffCommissionMap = new Map();
+        posCart.forEach(item => { if(item.assignedStaff) item.assignedStaff.forEach(staff => { const current = staffCommissionMap.get(staff.id) || { commission: 0, jobs: 0, name: staff.name, tier: staff.commissionTier }; current.commission += staff.splitCommission; current.jobs += 1; staffCommissionMap.set(staff.id, current); }); });
+        
+        const transaction = { 
+            id: generateReceiptNo(), 
+            date: new Date().toISOString(), 
+            customer: selectedCustomer ? selectedCustomer.name : "Walk-in Customer", 
+            customerId: selectedCustomer?.id, 
+            vehicle: vehicleInfo.model || "N/A", 
+            plate: vehicleInfo.plate || "N/A", 
+            items: posCart.map(i => ({ ...i })), 
+            staffCommissions: Object.fromEntries([...staffCommissionMap.entries()]), 
+            subtotal: calcSubtotal(), 
+            discount, 
+            loyaltyUsed: loyaltyPointsUsed, 
+            total, 
+            paymentMethod: selectedPayment, 
+            cashTendered: selectedPayment === "Cash" ? cashTendered : total, 
+            change: selectedPayment === "Cash" ? (cashTendered - total) : 0,
+            remarks: cartRemarks,
+            itemRemarks: posCart.map(i => ({ service: i.serviceName, remark: i.remarks || 'None' }))
+        };
+        
+        appData.transactions.unshift(transaction);
+        staffCommissionMap.forEach((data, staffId) => { const staff = appData.staff.find(s => s.id === staffId); if(staff) { staff.totalCommission = (staff.totalCommission || 0) + data.commission; staff.jobsCompleted += data.jobs; staff.salesGenerated += transaction.items.filter(i => i.assignedStaff?.some(s => s.id === staffId)).reduce((sum, i) => sum + i.total, 0); } });
+        
+        if(selectedCustomer) { let earnedPoints = Math.floor(total * appData.systemSettings.loyaltyPointsPerPeso); selectedCustomer.loyaltyPoints = (selectedCustomer.loyaltyPoints || 0) + earnedPoints; const idx = appData.customers.findIndex(c=>c.id === selectedCustomer.id); if(idx !== -1) appData.customers[idx].loyaltyPoints = selectedCustomer.loyaltyPoints; }
+        
+        saveToLocal();
+        alert(`✅ SALE COMPLETED!\nTotal: ₱${total.toFixed(2)}`);
+        print58mmReceipt(transaction);
+        posCart = []; selectedCustomer = null; vehicleInfo = { plate: "", model: "", size: "Medium" }; discount = 0; loyaltyPointsUsed = 0; cashTendered = 0; cartRemarks = "";
+        renderApp();
+    }
+
+    // ======================== CUSTOMER FUNCTIONS ========================
+    function renderCustomers() {
+        if(showLogin) return renderLogin();
+        return `<div class="card-premium p-6"><div class="flex justify-between mb-4"><h2 class="text-2xl font-bold">👥 Customer Database</h2><button onclick="addCustomerPopup()" class="bg-green-600 px-3 py-1 rounded">+ Add</button></div>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full"><thead class="sticky top-0 bg-gray-900 border-b border-cyan-400"><tr><th>Name</th><th>Contact</th><th>Vehicle</th><th>Plate</th><th>Points</th><th>History</th></tr></thead><tbody>
+            ${appData.customers.map(c => `<tr class="border-b border-gray-800"><td class="py-2">${c.name}</td><td>${c.mobile || "—"}</td><td>${c.vehicleInfo || "—"}</td><td>${c.plate || "—"}</td><td>${c.loyaltyPoints}</td><td><button onclick="viewCustomerHistory(${c.id})" class="text-cyan-400 text-sm">View</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    }
+
+    window.viewCustomerHistory = (id) => {
+        const tx = appData.transactions.filter(t => t.customerId === id);
+        alert(`Customer has ${tx.length} transaction(s). Total spent: ₱${tx.reduce((s,t)=>s+t.total,0).toFixed(2)}`);
+    };
+
+    window.addCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { appData.customers.push({ id: Date.now(), name, mobile: "", loyaltyPoints: 0 }); saveToLocal(); renderApp(); } };
+    window.selectCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { let existing = appData.customers.find(c=>c.name.toLowerCase()===name.toLowerCase()); if(existing) selectedCustomer = existing; else { let newCust = { id: Date.now(), name, loyaltyPoints:0 }; appData.customers.push(newCust); selectedCustomer = newCust; } renderApp(); } };
 
     // ======================== STAFF FUNCTIONS ========================
     function renderStaffDashboard() {
@@ -1605,352 +1528,6 @@
         win.print();
     };
 
-    // ======================== DASHBOARD ========================
-    function renderDashboard() {
-        if(showLogin) return renderLogin();
-        const todaySales = appData.transactions.filter(t=>new Date(t.date).toDateString() === new Date().toDateString()).reduce((s,t)=>s+t.total,0);
-        const weeklySales = appData.transactions.filter(t=>{ const d=new Date(t.date); const today=new Date(); const weekStart=new Date(today); weekStart.setDate(today.getDate()-today.getDay()); return d>=weekStart; }).reduce((s,t)=>s+t.total,0);
-        const monthlySales = appData.transactions.filter(t=>new Date(t.date).getMonth() === new Date().getMonth()).reduce((s,t)=>s+t.total,0);
-        const openCount = appData.openServices.filter(s => s.status === 'pending' || s.status === 'in-progress').length;
-        const lowStock = appData.inventory.filter(i => i.quantity <= i.reorderLevel).length;
-
-        const today = new Date().toISOString().slice(0,10);
-        const staffDailyCommissions = appData.staff.map(s => {
-            const dailyCommission = appData.transactions.filter(t => {
-                return t.date.startsWith(today) && t.staffCommissions && t.staffCommissions[s.id];
-            }).reduce((sum, t) => {
-                return sum + (t.staffCommissions[s.id]?.commission || 0);
-            }, 0);
-            return { ...s, dailyCommission: dailyCommission };
-        }).filter(s => s.dailyCommission > 0 || s.isActive);
-
-        const totalDailyCommission = staffDailyCommissions.reduce((sum, s) => sum + s.dailyCommission, 0);
-
-        const recentCommissions = appData.transactions
-            .filter(t => t.date.startsWith(today) && t.staffCommissions)
-            .slice(0, 5)
-            .map(t => {
-                const staffNames = Object.values(t.staffCommissions).map(s => s.name).join(', ');
-                const totalComm = Object.values(t.staffCommissions).reduce((sum, s) => sum + s.commission, 0);
-                return { time: t.date, staff: staffNames, amount: totalComm, customer: t.customer };
-            });
-
-        const serviceCount = {};
-        appData.transactions.forEach(t => { t.items.forEach(item => { serviceCount[item.serviceName] = (serviceCount[item.serviceName] || 0) + item.quantity; }); });
-        const sortedServices = Object.entries(serviceCount).sort((a,b) => b[1] - a[1]).slice(0,8);
-        const maxCount = sortedServices.length > 0 ? sortedServices[0][1] : 1;
-        
-        let barHtml = sortedServices.map(([name, count]) => {
-            const pct = (count / maxCount * 100);
-            const colors = ['#00d4ff', '#00ff88', '#ffaa00', '#ff4444', '#aa66ff', '#ff66aa', '#66ffcc', '#ffcc44'];
-            const color = colors[sortedServices.indexOf([name, count]) % colors.length];
-            return `<div class="bar-item"><span class="bar-label text-sm">${name}</span><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${color}"></div></div><span class="bar-value text-sm">${count}</span></div>`;
-        }).join('');
-
-        setTimeout(() => {
-            const ctx = document.getElementById('salesChart')?.getContext('2d');
-            if(ctx) { new Chart(ctx, { type: 'line', data: { labels: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], datasets: [{ label: 'Sales (₱)', data: [1500,2300,3200,2800,4100,3900,4800], borderColor: '#00d4ff', tension: 0.3, fill: true, backgroundColor: 'rgba(0,212,255,0.1)' }] } }); }
-        }, 100);
-        
-        const logoHtml = appData.systemSettings.companyLogo ? 
-            `<img src="${appData.systemSettings.companyLogo}" class="company-logo inline-block mr-2" alt="Logo">` : '';
-        
-        let commissionHtml = staffDailyCommissions.map(s => `
-            <div class="commission-item flex justify-between items-center py-2 border-b border-gray-700/50">
-                <div class="flex items-center gap-2">
-                    <span class="text-sm font-medium">${s.name}</span>
-                    <span class="commission-badge text-xs">${s.commissionTier}%</span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <span class="text-xs text-gray-400">${s.jobsCompleted || 0} jobs</span>
-                    <span class="text-sm font-bold text-green-400">₱${s.dailyCommission.toFixed(2)}</span>
-                </div>
-            </div>
-        `).join('');
-
-        let recentCommissionHtml = recentCommissions.map(c => `
-            <div class="commission-item flex justify-between items-center py-1.5 border-b border-gray-700/30 text-xs">
-                <div>
-                    <span class="text-gray-400">${new Date(c.time).toLocaleTimeString()}</span>
-                    <span class="text-cyan-300 ml-2">${c.customer}</span>
-                </div>
-                <div>
-                    <span class="text-gray-400">${c.staff}</span>
-                    <span class="text-green-400 font-bold ml-2">+₱${c.amount.toFixed(2)}</span>
-                </div>
-            </div>
-        `).join('');
-
-        return `<div class="flex justify-between items-center mb-4">
-            <div class="flex items-center gap-3">
-                ${logoHtml}
-                <div>
-                    <span class="text-sm text-gray-400"><i class="fas fa-clock"></i> <span id="liveClock" class="live-clock">Loading...</span></span>
-                    <span class="text-xs text-cyan-400 ml-3">👤 ${appData.currentUser?.name} (${appData.currentUser?.role})</span>
-                    <button onclick="logout()" class="text-xs text-red-400 ml-3 hover:text-red-300"><i class="fas fa-sign-out-alt"></i> Logout</button>
-                </div>
-            </div>
-            <div class="text-sm text-gray-400">${appData.systemSettings.businessHours}</div>
-        </div>
-        
-        <div class="grid lg:grid-cols-4 gap-4 mb-6">
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Today's Sales</div><div class="text-2xl font-bold text-green-400">₱${todaySales.toFixed(2)}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Weekly Sales</div><div class="text-2xl font-bold text-cyan-400">₱${weeklySales.toFixed(2)}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Monthly Sales</div><div class="text-2xl font-bold text-yellow-400">₱${monthlySales.toFixed(2)}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Open Services</div><div class="text-2xl font-bold text-orange-400">${openCount}</div></div>
-        </div>
-        
-        <div class="grid lg:grid-cols-4 gap-4 mb-6">
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Low Stock Items</div><div class="text-2xl font-bold text-red-400">${lowStock}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Active Staff</div><div class="text-2xl font-bold">${appData.staff.filter(s=>s.isActive).length}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Total Customers</div><div class="text-2xl font-bold">${appData.customers.length}</div></div>
-            <div class="card-premium p-4"><div class="text-gray-400 text-sm">Total Transactions</div><div class="text-2xl font-bold">${appData.transactions.length}</div></div>
-        </div>
-        
-        <div class="grid lg:grid-cols-3 gap-6 mb-6">
-            <div class="lg:col-span-2 card-premium p-5">
-                <h3 class="text-lg font-bold mb-3"><i class="fas fa-chart-bar"></i> Popular Services</h3>
-                <div class="max-h-64 overflow-y-auto">${barHtml || '<div class="text-gray-400 text-center py-4">No service data yet</div>'}</div>
-            </div>
-            <div class="card-premium p-5">
-                <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
-                    <i class="fas fa-coins text-yellow-400"></i> Daily Commissions
-                    <span class="text-xs text-gray-400 ml-auto">${new Date().toLocaleDateString()}</span>
-                </h3>
-                <div class="mb-3 pb-2 border-b border-gray-700">
-                    <div class="flex justify-between items-center">
-                        <span class="text-sm text-gray-400">Total Today</span>
-                        <span class="text-2xl font-bold text-green-400">₱${totalDailyCommission.toFixed(2)}</span>
-                    </div>
-                </div>
-                <div class="max-h-48 overflow-y-auto">
-                    ${commissionHtml || '<div class="text-gray-400 text-center py-4 text-sm">No commissions yet today</div>'}
-                </div>
-                <div class="mt-3 pt-2 border-t border-gray-700">
-                    <div class="text-xs text-gray-400 flex items-center gap-1">
-                        <span class="live-dot"></span> Live updates
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="grid lg:grid-cols-2 gap-6">
-            <div class="card-premium p-5">
-                <h3 class="text-lg font-bold mb-3"><i class="fas fa-chart-line"></i> Sales Trend</h3>
-                <canvas id="salesChart" height="200"></canvas>
-            </div>
-            <div class="card-premium p-5">
-                <h3 class="text-lg font-bold mb-3 flex items-center gap-2">
-                    <i class="fas fa-bolt text-cyan-400"></i> Recent Commission Activity
-                </h3>
-                <div class="max-h-48 overflow-y-auto">
-                    ${recentCommissionHtml || '<div class="text-gray-400 text-center py-4 text-sm">No recent commission activity</div>'}
-                </div>
-                <div class="mt-3 pt-2 border-t border-gray-700">
-                    <div class="text-xs text-gray-400 flex items-center gap-1">
-                        <span class="live-dot"></span> Real-time feed
-                    </div>
-                </div>
-            </div>
-        </div>`;
-    }
-
-    // ======================== POS ========================
-    function renderPOS() {
-        if(showLogin) return renderLogin();
-        if(!hasRole(['Owner', 'Manager', 'Cashier'])) {
-            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Cashier or higher role required.</p></div>`;
-        }
-        
-        const activeServices = appData.services.filter(s => s.isActive !== false);
-        const serviceCategories = [...new Set(activeServices.map(s => s.category))];
-        
-        let servicesHtml = '';
-        serviceCategories.forEach(cat => {
-            const catServices = activeServices.filter(s => s.category === cat);
-            if(catServices.length) {
-                servicesHtml += `<div class="mb-6"><h3 class="text-lg font-bold text-cyan-400 mb-2"><span class="category-badge">${cat}</span></h3><div class="grid grid-cols-2 md:grid-cols-3 gap-2">`;
-                catServices.forEach(service => {
-                    servicesHtml += `<div class="service-btn bg-gray-900 p-3 rounded-lg" onclick="showSizeModal(${service.id})">
-                        <div class="font-bold text-sm">${service.name}</div>
-                        <div class="text-xs text-gray-400">${service.desc.substring(0, 35)}</div>
-                        <div class="text-cyan-300 text-xs mt-1">From ₱${Object.values(service.prices)[0]}</div>
-                    </div>`;
-                });
-                servicesHtml += `</div></div>`;
-            }
-        });
-
-        const cartHtml = posCart.map((item, idx) => `<div class="flex justify-between items-center border-b border-gray-700 py-3"><div class="flex-1"><div class="font-semibold">${item.serviceName} (${item.variant})</div><div class="text-xs text-cyan-400">💰 ${item.assignedStaff?.map(s => `${s.name}: ₱${s.splitCommission.toFixed(2)}`).join(', ') || 'No staff'}</div><div class="text-xs text-gray-400">📝 ${item.remarks || 'None'}</div><div>₱${item.price} × ${item.quantity} = <strong>₱${item.total}</strong></div></div><div><input type="number" min="1" value="${item.quantity}" class="w-16 bg-gray-700 rounded text-sm p-1" onchange="updateCartQuantity(${idx}, this.value)"><div class="mt-2"><i class="fas fa-pen text-yellow-400 cursor-pointer mr-2" onclick="addItemRemark(${idx})"></i><i class="fas fa-users text-cyan-400 cursor-pointer mr-2" onclick="reassignStaff(${idx}, '${item.serviceName}', '${item.variant}')"></i><i class="fas fa-trash text-red-500 cursor-pointer" onclick="removeCartItem(${idx})"></i></div></div></div>`).join('');
-        
-        return `<div class="grid lg:grid-cols-3 gap-6">
-            <div class="lg:col-span-2 card-premium p-5 max-h-[75vh] overflow-y-auto">
-                <h2 class="text-2xl font-bold mb-4 neon-glow p-2 rounded">Service Menu</h2>
-                ${servicesHtml}
-            </div>
-            <div class="card-premium p-5">
-                <h3 class="text-xl font-bold mb-3">Shopping Cart (${posCart.length})</h3>
-                <div>
-                    <input placeholder="Plate Number" id="plateInput" class="w-full bg-gray-800 p-2 rounded my-1" value="${vehicleInfo.plate}">
-                    <input placeholder="Vehicle Model" id="modelInput" class="w-full bg-gray-800 p-2 rounded my-1" value="${vehicleInfo.model}">
-                    <button onclick="selectCustomerPopup()" class="bg-blue-600 p-2 rounded w-full">${selectedCustomer ? selectedCustomer.name : "Select Customer"}</button>
-                </div>
-                <div class="max-h-52 overflow-y-auto my-3">${cartHtml || "<div class='text-gray-500 text-center py-4'>Cart is empty</div>"}</div>
-                <div><textarea placeholder="Overall Remarks..." id="cartRemarksInput" class="w-full bg-gray-800 p-2 rounded my-1 text-sm" rows="2">${cartRemarks}</textarea></div>
-                <div>Subtotal: ₱${calcSubtotal()}</div>
-                <div>Discount: <input id="discountInput" value="${discount}" class="w-24 bg-gray-700 rounded px-2" step="10"></div>
-                <div>Loyalty: <input id="loyaltyUse" value="${loyaltyPointsUsed}" class="w-24 bg-gray-700 rounded"></div>
-                <div class="font-bold text-xl text-cyan-400">Total: ₱${calcTotal()}</div>
-                <select id="paymentMethod" class="bg-gray-800 p-2 w-full rounded my-2">
-                    ${appData.systemSettings.defaultPaymentMethods.map(m => `<option>${m}</option>`).join('')}
-                </select>
-                <input placeholder="Cash Tendered" id="cashTenderedInput" class="bg-gray-800 p-2 w-full rounded" type="number">
-                <button onclick="completeSaleWrapper()" class="btn-neon w-full p-3 rounded-xl mt-2">Complete Sale</button>
-                <button onclick="saveAsOpenService()" class="bg-orange-600 w-full p-2 rounded-xl mt-2"><i class="fas fa-clock"></i> Save as Open Service</button>
-            </div>
-        </div>`;
-    }
-
-    window.saveAsOpenService = () => {
-        if(posCart.length === 0) { alert("Please add services to cart!"); return; }
-        const customer = selectedCustomer ? selectedCustomer.name : prompt("Customer name:") || "Walk-in Customer";
-        const vehicle = vehicleInfo.model || prompt("Vehicle model:") || "N/A";
-        const plate = vehicleInfo.plate || prompt("Plate number:") || "N/A";
-        const total = calcTotal();
-        const staff = posCart.flatMap(i => i.assignedStaff || []).filter((v, i, a) => a.indexOf(v) === i);
-        
-        createOpenService(customer, vehicle, plate, posCart, staff, total, cartRemarks);
-        alert(`✅ Service saved as Open Service!\nTotal: ₱${total.toFixed(2)}\nCommission will auto-generate on completion.`);
-        
-        posCart = [];
-        selectedCustomer = null;
-        vehicleInfo = { plate: "", model: "", size: "Medium" };
-        discount = 0;
-        loyaltyPointsUsed = 0;
-        cartRemarks = "";
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        renderApp();
-    };
-
-    // ======================== POS HELPERS ========================
-    function showSizeModal(serviceId) {
-        const service = appData.services.find(s => s.id === serviceId);
-        if(!service.isActive) { alert("This service is currently inactive."); return; }
-        let sizeHtml = service.sizes.map(size => `<div class="size-option bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-cyan-500 hover:text-black transition-all m-2 inline-block" data-size="${size}" data-price="${service.prices[size]}"><span class="font-bold">${size}</span><br><span class="text-cyan-300">₱${service.prices[size]}</span></div>`).join('');
-        let modalHtml = `<div id="sizeModal" class="modal"><div class="modal-content"><h3 class="text-xl font-bold mb-2">${service.name}</h3><p class="text-sm text-gray-400 mb-4">${service.desc}</p><p class="text-cyan-400 mb-3">Select Vehicle Size:</p><div id="sizeOptions" class="flex flex-wrap gap-2 mb-4 justify-center">${sizeHtml}</div><div><label class="text-sm text-gray-400">Item Remarks:</label><input type="text" id="itemRemarkInput" class="w-full bg-gray-800 p-2 rounded mt-1" placeholder="Special instructions..."></div><div class="flex gap-3 mt-4"><button onclick="confirmAddToCartWithSize(${serviceId})" class="btn-neon flex-1 p-2 rounded">Add to Cart</button><button onclick="closeSizeModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button></div></div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        document.querySelectorAll('.size-option').forEach(opt => { opt.addEventListener('click', function() { document.querySelectorAll('.size-option').forEach(o => o.classList.remove('bg-cyan-500', 'text-black')); document.querySelectorAll('.size-option').forEach(o => o.classList.add('bg-gray-800')); this.classList.remove('bg-gray-800'); this.classList.add('bg-cyan-500', 'text-black'); this.dataset.selected = "true"; }); });
-    }
-
-    window.confirmAddToCartWithSize = (serviceId) => {
-        const selectedSizeElem = document.querySelector('.size-option[data-selected="true"]') || document.querySelector('.size-option');
-        if(!selectedSizeElem) { alert("Please select a size first!"); return; }
-        const size = selectedSizeElem.dataset.size;
-        const price = parseFloat(selectedSizeElem.dataset.price);
-        const service = appData.services.find(s => s.id === serviceId);
-        const remark = document.getElementById('itemRemarkInput')?.value || "";
-        posCart.push({ serviceId, serviceName: service.name, variant: size, price, quantity: 1, total: price, assignedStaff: [], remarks: remark });
-        closeSizeModal();
-        showStaffAssignmentModal(posCart.length - 1, service.name, size);
-        renderApp();
-    };
-
-    function showStaffAssignmentModal(cartIndex, serviceName, size) {
-        const activeStaff = appData.staff.filter(s => s.isActive);
-        let staffOptionsHtml = activeStaff.map(s => { 
-            const fullCommission = getCommissionAmount(serviceName, size, s.commissionTier);
-            return `<label class="flex items-center justify-between p-3 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 mb-2"><div class="flex items-center space-x-3"><input type="checkbox" value="${s.id}" class="staff-checkbox w-5 h-5" data-name="${s.name}" data-tier="${s.commissionTier}" data-full-comm="${fullCommission}"><span><strong>${s.name}</strong> - ${s.position}</span></div><div class="text-right"><span class="commission-badge">${s.commissionTier}%</span><div class="text-xs text-green-400">₱${fullCommission}</div></div></label>`; 
-        }).join('');
-        let modalHtml = `<div id="staffModal" class="modal"><div class="modal-content"><h3 class="text-xl font-bold mb-2">Assign Staff: ${serviceName} (${size})</h3><p class="text-sm text-yellow-400 mb-2">Commission Split Rule: ${appData.systemSettings.commissionSplitRule}</p><div id="staffCheckboxes" class="space-y-2 mb-4">${staffOptionsHtml}</div><div id="commissionPreview" class="bg-gray-900 p-3 rounded-lg mb-3 text-sm"><span id="previewText">Select staff to see split breakdown</span></div><div class="flex gap-3"><button onclick="confirmStaffAssignment(${cartIndex}, '${serviceName}', '${size}')" class="btn-neon flex-1 p-2 rounded">Confirm</button><button onclick="closeStaffModal()" class="bg-gray-700 flex-1 p-2 rounded">Skip</button></div></div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        document.querySelectorAll('.staff-checkbox').forEach(cb => cb.addEventListener('change', updateSplitPreview));
-        function updateSplitPreview() { const selected = []; document.querySelectorAll('.staff-checkbox:checked').forEach(cb => selected.push({ name: cb.dataset.name, tier: parseInt(cb.dataset.tier), fullCommission: parseFloat(cb.dataset.full_comm) })); if(selected.length === 1) document.getElementById('previewText').innerHTML = `<div class="text-green-400">💰 1 Staff - Full Commission</div><div>${selected[0].name}: ₱${selected[0].fullCommission}</div>`; else if(selected.length === 2) document.getElementById('previewText').innerHTML = `<div class="text-green-400">👥 2 Staff - EQUAL SPLIT (50/50)</div><div>${selected[0].name}: ₱${(selected[0].fullCommission/2).toFixed(2)} | ${selected[1].name}: ₱${(selected[1].fullCommission/2).toFixed(2)}</div><div class="text-cyan-400">Total: ₱${(selected[0].fullCommission/2 + selected[1].fullCommission/2).toFixed(2)}</div>`; else document.getElementById('previewText').innerHTML = '<span class="text-gray-400">Select 1 or 2 staff members</span>'; }
-    }
-
-    window.confirmStaffAssignment = (cartIndex, serviceName, size) => {
-        const selected = []; document.querySelectorAll('.staff-checkbox:checked').forEach(cb => selected.push({ id: parseInt(cb.value), name: cb.dataset.name, commissionTier: parseInt(cb.dataset.tier), fullCommission: getCommissionAmount(serviceName, size, parseInt(cb.dataset.tier)) }));
-        if(selected.length > 0) { const assignedWithSplit = selected.map(s => ({ ...s, splitCommission: selected.length === 2 ? s.fullCommission / 2 : s.fullCommission })); posCart[cartIndex].assignedStaff = assignedWithSplit; }
-        closeStaffModal(); renderApp();
-    };
-
-    window.closeStaffModal = () => document.getElementById('staffModal')?.remove();
-    window.closeSizeModal = () => document.getElementById('sizeModal')?.remove();
-    window.addItemRemark = (idx) => { const remark = prompt("Enter remark for this service:", posCart[idx].remarks || ""); if(remark !== null) { posCart[idx].remarks = remark; renderApp(); } };
-    window.reassignStaff = (idx, name, size) => showStaffAssignmentModal(idx, name, size);
-
-    function removeCartItem(idx) { posCart.splice(idx,1); renderApp(); }
-    function updateCartQuantity(idx, qty) { if(qty>0) { posCart[idx].quantity = qty; posCart[idx].total = posCart[idx].price * qty; renderApp(); } }
-    function calcSubtotal() { return posCart.reduce((sum,item)=> sum + item.total,0); }
-    function calcTotal() { let total = calcSubtotal() - discount - loyaltyPointsUsed; return total > 0 ? total : 0; }
-
-    function completeSaleWrapper() {
-        selectedPayment = document.getElementById('paymentMethod')?.value || "Cash";
-        cashTendered = parseFloat(document.getElementById('cashTenderedInput')?.value || 0);
-        discount = parseFloat(document.getElementById('discountInput')?.value || 0);
-        loyaltyPointsUsed = parseFloat(document.getElementById('loyaltyUse')?.value || 0);
-        cartRemarks = document.getElementById('cartRemarksInput')?.value || "";
-        completeSale();
-    }
-
-    function completeSale() {
-        if(posCart.length === 0) { alert("Please add services to cart!"); return; }
-        const total = calcTotal();
-        if(selectedPayment === "Cash" && cashTendered < total) { alert("Insufficient cash!"); return; }
-        
-        const staffCommissionMap = new Map();
-        posCart.forEach(item => { if(item.assignedStaff) item.assignedStaff.forEach(staff => { const current = staffCommissionMap.get(staff.id) || { commission: 0, jobs: 0, name: staff.name, tier: staff.commissionTier }; current.commission += staff.splitCommission; current.jobs += 1; staffCommissionMap.set(staff.id, current); }); });
-        
-        const transaction = { 
-            id: generateReceiptNo(), 
-            date: new Date().toISOString(), 
-            customer: selectedCustomer ? selectedCustomer.name : "Walk-in Customer", 
-            customerId: selectedCustomer?.id, 
-            vehicle: vehicleInfo.model || "N/A", 
-            plate: vehicleInfo.plate || "N/A", 
-            items: posCart.map(i => ({ ...i })), 
-            staffCommissions: Object.fromEntries([...staffCommissionMap.entries()]), 
-            subtotal: calcSubtotal(), 
-            discount, 
-            loyaltyUsed: loyaltyPointsUsed, 
-            total, 
-            paymentMethod: selectedPayment, 
-            cashTendered: selectedPayment === "Cash" ? cashTendered : total, 
-            change: selectedPayment === "Cash" ? (cashTendered - total) : 0,
-            remarks: cartRemarks,
-            itemRemarks: posCart.map(i => ({ service: i.serviceName, remark: i.remarks || 'None' }))
-        };
-        
-        appData.transactions.unshift(transaction);
-        staffCommissionMap.forEach((data, staffId) => { const staff = appData.staff.find(s => s.id === staffId); if(staff) { staff.totalCommission = (staff.totalCommission || 0) + data.commission; staff.jobsCompleted += data.jobs; staff.salesGenerated += transaction.items.filter(i => i.assignedStaff?.some(s => s.id === staffId)).reduce((sum, i) => sum + i.total, 0); } });
-        
-        if(selectedCustomer) { let earnedPoints = Math.floor(total * appData.systemSettings.loyaltyPointsPerPeso); selectedCustomer.loyaltyPoints = (selectedCustomer.loyaltyPoints || 0) + earnedPoints; const idx = appData.customers.findIndex(c=>c.id === selectedCustomer.id); if(idx !== -1) appData.customers[idx].loyaltyPoints = selectedCustomer.loyaltyPoints; }
-        
-        saveToLocal();
-        alert(`✅ SALE COMPLETED!\nTotal: ₱${total.toFixed(2)}`);
-        print58mmReceipt(transaction);
-        posCart = []; selectedCustomer = null; vehicleInfo = { plate: "", model: "", size: "Medium" }; discount = 0; loyaltyPointsUsed = 0; cashTendered = 0; cartRemarks = "";
-        appData.weeklyCommissionCache = null;
-        appData.monthlyCommissionCache = null;
-        renderApp();
-    }
-
-    // ======================== CUSTOMER FUNCTIONS ========================
-    function renderCustomers() {
-        if(showLogin) return renderLogin();
-        return `<div class="card-premium p-6"><div class="flex justify-between mb-4"><h2 class="text-2xl font-bold">👥 Customer Database</h2><button onclick="addCustomerPopup()" class="bg-green-600 px-3 py-1 rounded">+ Add</button></div>
-            <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full"><thead class="sticky top-0 bg-gray-900 border-b border-cyan-400"><tr><th>Name</th><th>Contact</th><th>Vehicle</th><th>Plate</th><th>Points</th><th>History</th></tr></thead><tbody>
-            ${appData.customers.map(c => `<tr class="border-b border-gray-800"><td class="py-2">${c.name}</td><td>${c.mobile || "—"}</td><td>${c.vehicleInfo || "—"}</td><td>${c.plate || "—"}</td><td>${c.loyaltyPoints}</td><td><button onclick="viewCustomerHistory(${c.id})" class="text-cyan-400 text-sm">View</button></td></tr>`).join('')}</tbody></table></div></div>`;
-    }
-
-    window.viewCustomerHistory = (id) => {
-        const tx = appData.transactions.filter(t => t.customerId === id);
-        alert(`Customer has ${tx.length} transaction(s). Total spent: ₱${tx.reduce((s,t)=>s+t.total,0).toFixed(2)}`);
-    };
-
-    window.addCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { appData.customers.push({ id: Date.now(), name, mobile: "", loyaltyPoints: 0 }); saveToLocal(); renderApp(); } };
-    window.selectCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { let existing = appData.customers.find(c=>c.name.toLowerCase()===name.toLowerCase()); if(existing) selectedCustomer = existing; else { let newCust = { id: Date.now(), name, loyaltyPoints:0 }; appData.customers.push(newCust); selectedCustomer = newCust; } renderApp(); } };
-
     // ======================== ADMIN DASHBOARD ========================
     function renderAdminDashboard() {
         if(showLogin) return renderLogin();
@@ -1959,6 +1536,8 @@
         }
         
         const adminPanels = [
+            { id: 'reports', icon: 'fa-chart-pie', label: 'Report Summaries' },
+            { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Dashboard' },
             { id: 'transactions', icon: 'fa-receipt', label: 'Transactions' },
             { id: 'services', icon: 'fa-concierge-bell', label: 'Services' },
             { id: 'categories', icon: 'fa-tags', label: 'Categories' },
@@ -1968,13 +1547,13 @@
             { id: 'expenses', icon: 'fa-money-bill-wave', label: 'Expenses' },
             { id: 'commissions', icon: 'fa-percent', label: 'Commission Matrix' },
             { id: 'users', icon: 'fa-user-shield', label: 'Users' },
-            { id: 'system', icon: 'fa-cogs', label: 'System Settings' },
-            { id: 'weeklycommission', icon: 'fa-calendar-week', label: 'Weekly Commission' },
-            { id: 'monthlycommission', icon: 'fa-calendar-alt', label: 'Monthly Commission' }
+            { id: 'system', icon: 'fa-cogs', label: 'System Settings' }
         ];
         
         let content = '';
-        if(currentAdminPanel === 'transactions') content = renderAdminTransactions();
+        if(currentAdminPanel === 'reports') content = renderReportSummaries();
+        else if(currentAdminPanel === 'dashboard') content = renderDashboard();
+        else if(currentAdminPanel === 'transactions') content = renderAdminTransactions();
         else if(currentAdminPanel === 'services') content = renderAdminServices();
         else if(currentAdminPanel === 'categories') content = renderAdminCategories();
         else if(currentAdminPanel === 'staff') content = renderStaffDashboard();
@@ -1984,8 +1563,6 @@
         else if(currentAdminPanel === 'commissions') content = renderAdminCommissions();
         else if(currentAdminPanel === 'users') content = renderAdminUsers();
         else if(currentAdminPanel === 'system') content = renderAdminSystem();
-        else if(currentAdminPanel === 'weeklycommission') content = renderWeeklyCommissionReport();
-        else if(currentAdminPanel === 'monthlycommission') content = renderMonthlyCommissionReport();
         
         return `<div class="admin-grid">
             <div class="admin-sidebar">
@@ -1995,16 +1572,237 @@
                     <div class="text-gray-400">System Status</div>
                     <div class="grid grid-cols-2 gap-1 mt-2">
                         <div>Services: ${appData.services.length}</div>
-                        <div>Open Services: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
+                        <div>Open: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
                         <div>Staff: ${appData.staff.length}</div>
                         <div>TX: ${appData.transactions.length}</div>
                     </div>
                     <div class="mt-2 text-cyan-400 text-[10px]">Last Saved: ${new Date().toLocaleTimeString()}</div>
-                    <div class="mt-1 text-green-400 text-[10px]">✅ Real-time Commission Updates</div>
+                    <div class="mt-1 text-green-400 text-[10px]">📊 Report Summaries with Calendar</div>
                 </div>
             </div>
             <div class="admin-content card-premium p-5">${content}</div>
         </div>`;
+    }
+
+    // ======================== ADMIN - TRANSACTIONS ========================
+    function renderAdminTransactions() {
+        if(showLogin) return renderLogin();
+        recalculateStaffCommissions();
+        
+        let txHtml = appData.transactions.map(t => `
+            <tr class="border-b border-gray-700 transaction-row">
+                <td class="py-2 font-mono text-xs">${t.id}</td>
+                <td class="editable-field cursor-pointer" onclick="editTransactionDate('${t.id}')">${new Date(t.date).toLocaleString()}</td>
+                <td class="editable-field cursor-pointer" onclick="editTransactionCustomer('${t.id}')">${t.customer}</td>
+                <td>${t.vehicle}</td>
+                <td>${t.items.map(i => `${i.serviceName} (${i.variant})`).join(', ')}</td>
+                <td>${t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned'}</td>
+                <td class="text-green-400 font-bold editable-field cursor-pointer" onclick="editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
+                <td>${t.paymentMethod || 'Cash'}</td>
+                <td>
+                    <button onclick="editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit Full"><i class="fas fa-edit"></i></button>
+                    <button onclick="deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
+                    <button onclick="printReceiptFromTransaction('${t.id}')" class="action-btn bg-green-600 text-white hover:bg-green-700" title="Print"><i class="fas fa-print"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        const totalIncome = appData.transactions.reduce((s,t)=>s+t.total,0);
+        const totalCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
+
+        return `<div class="card-premium p-5">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold"><i class="fas fa-receipt"></i> Transaction Management</h3>
+                <div class="flex gap-2 flex-wrap">
+                    <span class="text-sm text-gray-400">Total: ${appData.transactions.length}</span>
+                    <span class="text-sm text-green-400">Revenue: ₱${totalIncome.toFixed(2)}</span>
+                    <span class="text-sm text-yellow-400">Commissions: ₱${totalCommission.toFixed(2)}</span>
+                    <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add</button>
+                    <button onclick="refreshTransactions()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-sync"></i> Refresh</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
+                        <tr><th class="text-left py-2">Receipt</th><th class="text-left py-2">Date & Time</th><th class="text-left py-2">Customer</th><th class="text-left py-2">Vehicle</th><th class="text-left py-2">Service</th><th class="text-left py-2">Staff</th><th class="text-right py-2">Total</th><th class="text-left py-2">Payment</th><th class="text-center py-2">Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        ${txHtml || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No transactions</td></tr>'}
+                    </tbody>
+                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
+                        <tr><td colspan="6" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalIncome.toFixed(2)}</td><td colspan="2"></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    window.editTransactionAmount = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newAmt = parseFloat(prompt("Edit amount:", t.total));
+            if(!isNaN(newAmt) && newAmt > 0) {
+                updateTransactionAndCommissions(id, { total: newAmt, subtotal: newAmt });
+                alert("✅ Amount updated! Commissions recalculated.");
+            }
+        }
+    };
+
+    window.editTransactionCustomer = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newName = prompt("Edit customer:", t.customer);
+            if(newName !== null) {
+                updateTransactionAndCommissions(id, { customer: newName });
+                alert("✅ Customer updated!");
+            }
+        }
+    };
+
+    window.editTransactionDate = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newDate = prompt("Edit date (YYYY-MM-DD):", new Date(t.date).toISOString().slice(0,10));
+            if(newDate) {
+                updateTransactionAndCommissions(id, { date: new Date(newDate).toISOString() });
+                alert("✅ Date updated!");
+            }
+        }
+    };
+
+    window.editTransactionFull = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(!t) return;
+        
+        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Edit Transaction</h3>
+            <div class="space-y-3">
+                <div><label class="text-gray-400">Customer</label><input type="text" id="editTxCustomer" class="w-full bg-gray-800 p-2 rounded" value="${t.customer}"></div>
+                <div><label class="text-gray-400">Amount</label><input type="number" id="editTxAmount" class="w-full bg-gray-800 p-2 rounded" value="${t.total}" step="0.01"></div>
+                <div><label class="text-gray-400">Vehicle</label><input type="text" id="editTxVehicle" class="w-full bg-gray-800 p-2 rounded" value="${t.vehicle}"></div>
+                <div><label class="text-gray-400">Plate</label><input type="text" id="editTxPlate" class="w-full bg-gray-800 p-2 rounded" value="${t.plate}"></div>
+                <div><label class="text-gray-400">Payment</label><select id="editTxPayment" class="w-full bg-gray-800 p-2 rounded">
+                    <option ${t.paymentMethod==="Cash"?"selected":""}>Cash</option>
+                    <option ${t.paymentMethod==="GCash"?"selected":""}>GCash</option>
+                    <option ${t.paymentMethod==="Maya"?"selected":""}>Maya</option>
+                    <option ${t.paymentMethod==="Credit Card"?"selected":""}>Credit Card</option>
+                    <option ${t.paymentMethod==="Bank Transfer"?"selected":""}>Bank Transfer</option>
+                </select></div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="confirmEditTransaction('${id}')" class="btn-neon flex-1 p-2 rounded">Update</button>
+                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
+                </div>
+            </div>
+        </div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    window.confirmEditTransaction = (id) => {
+        const customer = document.getElementById('editTxCustomer')?.value;
+        const amount = parseFloat(document.getElementById('editTxAmount')?.value);
+        const vehicle = document.getElementById('editTxVehicle')?.value;
+        const plate = document.getElementById('editTxPlate')?.value;
+        const payment = document.getElementById('editTxPayment')?.value;
+        
+        const updates = {};
+        if(customer) updates.customer = customer;
+        if(!isNaN(amount) && amount > 0) { updates.total = amount; updates.subtotal = amount; }
+        if(vehicle) updates.vehicle = vehicle;
+        if(plate) updates.plate = plate;
+        if(payment) updates.paymentMethod = payment;
+        
+        updateTransactionAndCommissions(id, updates);
+        closeAdminModal();
+        alert("✅ Transaction updated! Commissions recalculated.");
+        renderApp();
+    };
+
+    window.deleteTransactionAndCommission = (id) => {
+        if (!confirm("Delete this transaction? This will also remove associated commissions.")) return;
+
+        const txIndex = appData.transactions.findIndex(t => t.id === id);
+        if (txIndex === -1) return;
+
+        appData.transactions.splice(txIndex, 1);
+        recalculateStaffCommissions();
+        saveToLocal();
+        renderApp();
+        alert("✅ Transaction deleted and commissions updated!");
+    };
+
+    window.printReceiptFromTransaction = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) print58mmReceipt(t);
+    };
+
+    window.showAddTransactionModal = () => {
+        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Add Manual Transaction</h3>
+            <div class="space-y-3">
+                <div><label class="text-gray-400">Customer</label><input type="text" id="txCustomerInput" class="w-full bg-gray-800 p-2 rounded" value="Walk-in Customer"></div>
+                <div><label class="text-gray-400">Amount</label><input type="number" id="txAmountInput" class="w-full bg-gray-800 p-2 rounded" step="0.01"></div>
+                <div><label class="text-gray-400">Vehicle</label><input type="text" id="txVehicleInput" class="w-full bg-gray-800 p-2 rounded" placeholder="Toyota Vios"></div>
+                <div><label class="text-gray-400">Plate</label><input type="text" id="txPlateInput" class="w-full bg-gray-800 p-2 rounded"></div>
+                <div><label class="text-gray-400">Payment</label><select id="txPaymentInput" class="w-full bg-gray-800 p-2 rounded">
+                    <option>Cash</option><option>GCash</option><option>Maya</option><option>Credit Card</option><option>Bank Transfer</option>
+                </select></div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="confirmAddTransaction()" class="btn-neon flex-1 p-2 rounded">Add</button>
+                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
+                </div>
+            </div>
+        </div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    window.confirmAddTransaction = () => {
+        const customer = document.getElementById('txCustomerInput')?.value || "Walk-in Customer";
+        const amount = parseFloat(document.getElementById('txAmountInput')?.value);
+        const vehicle = document.getElementById('txVehicleInput')?.value || "N/A";
+        const plate = document.getElementById('txPlateInput')?.value || "N/A";
+        const payment = document.getElementById('txPaymentInput')?.value || "Cash";
+        
+        if(isNaN(amount) || amount <= 0) { alert("Valid amount required!"); return; }
+        
+        const transaction = {
+            id: generateReceiptNo(),
+            date: new Date().toISOString(),
+            customer: customer,
+            vehicle: vehicle,
+            plate: plate,
+            items: [{ serviceName: "Manual Entry", variant: "Standard", price: amount, quantity: 1, total: amount, assignedStaff: [], remarks: "Manual transaction" }],
+            subtotal: amount,
+            discount: 0,
+            loyaltyUsed: 0,
+            total: amount,
+            paymentMethod: payment,
+            cashTendered: amount,
+            change: 0,
+            remarks: "Manual transaction added via admin"
+        };
+        
+        appData.transactions.unshift(transaction);
+        saveToLocal();
+        closeAdminModal();
+        renderApp();
+        alert("✅ Transaction added!");
+    };
+
+    window.refreshTransactions = () => {
+        recalculateStaffCommissions();
+        renderApp();
+        alert("✅ Transactions refreshed! Commissions recalculated.");
+    };
+
+    function updateTransactionAndCommissions(transactionId, updatedData) {
+        const txIndex = appData.transactions.findIndex(t => t.id === transactionId);
+        if (txIndex === -1) return false;
+
+        appData.transactions[txIndex] = { ...appData.transactions[txIndex], ...updatedData };
+        recalculateStaffCommissions();
+        saveToLocal();
+        renderApp();
+        return true;
     }
 
     // ======================== ADMIN - SERVICES ========================
@@ -2129,7 +1927,7 @@
         }
     };
 
-    // ======================== INVENTORY ========================
+    // ======================== ADMIN - INVENTORY ========================
     function renderInventory() {
         if(showLogin) return renderLogin();
         if(!hasRole(['Owner', 'Manager'])) {
@@ -2234,7 +2032,7 @@
     window.editExpenseDate = (id) => { const e = appData.expenses.find(ex => ex.id === id); if(e) { const val = prompt("Edit date (YYYY-MM-DD):", e.date); if(val !== null) { e.date = val; saveToLocal(); renderApp(); } } };
     window.deleteExpenseItem = (id) => { if(confirm("Delete this expense?")) { appData.expenses = appData.expenses.filter(e => e.id !== id); saveToLocal(); renderApp(); } };
 
-    // ======================== ADMIN - COMMISSIONS ========================
+    // ======================== ADMIN - COMMISSIONS MATRIX ========================
     function renderAdminCommissions() {
         if(showLogin) return renderLogin();
         const commissionKeys = Object.keys(appData.commissionMatrix || {}).sort();
@@ -2435,12 +2233,13 @@
             </div>
             <div class="mt-4 p-3 bg-gray-800 rounded-lg text-xs">
                 <div class="text-gray-400">System Info</div>
-                <div>Version: 7.8 Enterprise (Real-time Commission) | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
+                <div>Version: 8.0 Enterprise | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
                 <div>Records: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff</div>
                 <div>Commission Entries: ${Object.keys(appData.commissionMatrix || {}).length}</div>
                 <div>Open Services: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
-                <div>Receipt Format: 58mm Thermal with Auto-Cut</div>
-                <div class="mt-1 text-green-400">✅ Real-time Commission Updates on Edit/Delete</div>
+                <div>Receipt: 58mm Thermal with Auto-Cut</div>
+                <div class="mt-1 text-green-400">📊 Report Summaries with Calendar</div>
+                <div class="mt-1 text-cyan-400">📅 Daily/Weekly/Monthly/Yearly Reports</div>
             </div>
         </div>`;
     }
@@ -2535,8 +2334,7 @@
         else if(currentView === "customers") content = renderCustomers();
         else if(currentView === "staff") content = renderStaffDashboard();
         else if(currentView === "admin") content = renderAdminDashboard();
-        else if(currentView === "weeklycommission") content = renderWeeklyCommissionReport();
-        else if(currentView === "monthlycommission") content = renderMonthlyCommissionReport();
+        else if(currentView === "reports") content = renderReportSummaries();
         main.innerHTML = content;
         setTimeout(() => {
             document.getElementById('plateInput')?.addEventListener('input', (e) => vehicleInfo.plate = e.target.value);
@@ -2563,7 +2361,7 @@
             <div class="flex flex-wrap justify-between items-center border-b border-blue-800 pb-4 mb-6">
                 <div class="flex items-center gap-3">
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="company-logo" alt="Logo">` : ''}
-                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v7.8</p></div>
+                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.0</p></div>
                 </div>
                 <div class="flex gap-2 flex-wrap mt-2">
                     <button onclick="navigate('dashboard')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-line"></i> Dashboard</button>
@@ -2572,21 +2370,19 @@
                     <button onclick="navigate('staff')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-id-badge"></i> Staff</button>
                     <button onclick="navigate('customers')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-users"></i> Customers</button>
                     <button onclick="navigate('admin')" class="px-3 py-2 bg-purple-900 rounded-lg neon-border text-sm"><i class="fas fa-crown"></i> Admin</button>
-                    <button onclick="navigate('weeklycommission')" class="px-3 py-2 bg-yellow-900 rounded-lg neon-border text-sm"><i class="fas fa-calendar-week"></i> Weekly Comm.</button>
-                    <button onclick="navigate('monthlycommission')" class="px-3 py-2 bg-blue-900 rounded-lg neon-border text-sm"><i class="fas fa-calendar-alt"></i> Monthly Comm.</button>
+                    <button onclick="navigate('reports')" class="px-3 py-2 bg-green-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-bar"></i> Reports</button>
                 </div>
             </div>
             <div id="mainContent"></div>
-            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | Real-time Commission v7.8</footer>
+            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | v8.0</footer>
         </div>
     `;
     renderApp();
     saveToLocal();
 
-    console.log('%c8068 CAR SQUARE - Enterprise Management System v7.8', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
+    console.log('%c8068 CAR SQUARE - Enterprise Management System v8.0', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
     console.log(`%cRecords: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff`, 'color: #00ff88;');
-    console.log('%c✅ Real-time Commission Updates on Edit/Delete', 'color: #00ff88;');
-    console.log('%c📅 Weekly & Monthly Commission Reports with Calendar Dates', 'color: #ffaa00;');
+    console.log('%c📊 Report Summaries with Calendar | 📅 Daily/Weekly/Monthly/Yearly Reports', 'color: #ffaa00;');
 </script>
 </body>
 </html>
