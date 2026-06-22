@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>8068 CAR SQUARE | POS System v8.1</title>
+    <title>8068 CAR SQUARE | POS System v8.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -45,18 +45,6 @@
         .status-in-progress { background: #00d4ff33; color: #00d4ff; }
         .status-completed { background: #00ff8833; color: #00ff88; }
         .status-paid { background: #8888ff33; color: #8888ff; }
-        .commission-item { animation: slideIn 0.3s ease; }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-10px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        .live-dot { display: inline-block; width: 8px; height: 8px; background: #00ff88; border-radius: 50%; animation: pulse 1.5s infinite; }
-        @keyframes pulse {
-            0% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-        }
-        .commission-detail-row { border-left: 3px solid #00ff8833; }
         .receipt-58mm { width: 58mm; margin: 0 auto; padding: 8px; background: white; color: black; font-family: 'Courier New', monospace; font-size: 11px; }
         .receipt-58mm .center { text-align: center; }
         .receipt-58mm .line { border-top: 1px dashed #000; margin: 4px 0; }
@@ -79,6 +67,8 @@
         .weekday-col { background: #1a1a1a; border-radius: 4px; padding: 2px 4px; text-align: center; font-size: 11px; }
         .commission-summary-table td { padding: 6px 4px; border-bottom: 1px solid #222; }
         .commission-summary-table th { padding: 8px 4px; border-bottom: 2px solid #00d4ff; color: #00d4ff; font-size: 11px; text-transform: uppercase; }
+        .tx-row-clickable { cursor: pointer; transition: all 0.2s; }
+        .tx-row-clickable:hover { background: rgba(0,212,255,0.05); }
         @media print {
             .no-print { display: none; }
             .receipt-58mm { width: 58mm; margin: 0; padding: 4px; }
@@ -254,7 +244,7 @@
 
     // ======================== STATE ========================
     let currentView = "dashboard";
-    let currentAdminPanel = "reports";
+    let currentAdminPanel = "dailytransactions";
     let posCart = [];
     let selectedCustomer = null;
     let vehicleInfo = { plate: "", model: "", size: "Medium" };
@@ -270,14 +260,13 @@
 
     // ======================== RECALCULATE STAFF COMMISSIONS (FULL REBUILD) ========================
     function recalculateStaffCommissions() {
-        // Reset staff metrics
         appData.staff.forEach(s => {
             s.totalCommission = 0;
             s.jobsCompleted = 0;
             s.salesGenerated = 0;
             s.weeklyBreakdown = { Sunday: 0, Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0 };
-            s.weekPart1Total = 0; // Sun-Tue
-            s.weekPart2Total = 0; // Wed-Sat
+            s.weekPart1Total = 0;
+            s.weekPart2Total = 0;
         });
 
         appData.transactions.forEach(t => {
@@ -291,7 +280,6 @@
                         staff.totalCommission = (staff.totalCommission || 0) + commission;
                         staff.jobsCompleted = (staff.jobsCompleted || 0) + (data.jobs || 1);
                         staff.salesGenerated = (staff.salesGenerated || 0) + (t.total || 0);
-                        // Weekly breakdown
                         if (staff.weeklyBreakdown) {
                             staff.weeklyBreakdown[dayName] = (staff.weeklyBreakdown[dayName] || 0) + commission;
                         }
@@ -300,7 +288,6 @@
             }
         });
 
-        // Compute week part totals
         appData.staff.forEach(s => {
             if (s.weeklyBreakdown) {
                 s.weekPart1Total = (s.weeklyBreakdown.Sunday || 0) + (s.weeklyBreakdown.Monday || 0) + (s.weeklyBreakdown.Tuesday || 0);
@@ -420,8 +407,8 @@
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="mx-auto max-h-20 mb-4">` : ''}
                     <h2 class="text-3xl font-bold glow-text">${appData.systemSettings.companyName}</h2>
                     <p class="text-gray-400 text-sm">${appData.systemSettings.tagline}</p>
-                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v8.1</p>
-                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-chart-line"></i> Enhanced Weekly Commission Reports</p>
+                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v8.2</p>
+                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-chart-line"></i> Daily Transaction Management + Auto-Commission Sync</p>
                 </div>
                 <div class="space-y-4">
                     <div><label class="text-gray-400">Username</label><input type="text" id="loginUser" class="w-full bg-gray-800 p-3 rounded border border-gray-700" placeholder="Enter username" value="owner"></div>
@@ -446,7 +433,152 @@
         }
     };
 
-    // ======================== ENHANCED WEEKLY COMMISSION REPORT ========================
+    // ======================== DAILY TRANSACTION MANAGEMENT DASHBOARD ========================
+    function renderDailyTransactionManagement() {
+        if(showLogin) return renderLogin();
+        recalculateStaffCommissions();
+
+        const today = new Date().toISOString().slice(0,10);
+        const dailyTx = appData.transactions.filter(t => t.date.startsWith(today));
+
+        let txRows = dailyTx.map(t => {
+            const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
+            const size = t.items.map(i => i.variant).join(', ') || 'N/A';
+            return `<tr class="border-b border-gray-700 tx-row-clickable" onclick="openTransactionEdit('${t.id}')">
+                <td class="py-2 font-mono text-xs">${t.id}</td>
+                <td class="py-2 text-xs">${new Date(t.date).toLocaleString()}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionCustomer('${t.id}')">${t.customer}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionVehicle('${t.id}')">${t.vehicle}</td>
+                <td class="text-xs">${size}</td>
+                <td class="text-xs">${staffNames}</td>
+                <td class="text-green-400 font-bold editable-field" onclick="event.stopPropagation();editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionPayment('${t.id}')">${t.paymentMethod || 'Cash'}</td>
+                <td>
+                    <button onclick="event.stopPropagation();editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit"><i class="fas fa-edit"></i></button>
+                    <button onclick="event.stopPropagation();deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
+                    <button onclick="event.stopPropagation();printReceiptFromTransaction('${t.id}')" class="action-btn bg-green-600 text-white hover:bg-green-700" title="Print"><i class="fas fa-print"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        const totalSales = dailyTx.reduce((s,t)=>s+t.total,0);
+        const totalCommission = dailyTx.filter(t => t.staffCommissions).reduce((sum, t) => sum + Object.values(t.staffCommissions).reduce((s, st) => s + (st.commission || 0), 0), 0);
+
+        return `<div class="card-premium p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-2xl font-bold"><i class="fas fa-calendar-day"></i> Daily Transaction Management</h2>
+                    <p class="text-sm text-gray-400">${today} | ${dailyTx.length} transactions today</p>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                    <span class="text-sm text-green-400">Sales: ₱${totalSales.toFixed(2)}</span>
+                    <span class="text-sm text-yellow-400">Commission: ₱${totalCommission.toFixed(2)}</span>
+                    <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add</button>
+                    <button onclick="exportDailyExcel()" class="excel-export-btn px-3 py-1 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
+                    <button onclick="printDailyTransactions()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-print"></i> Print</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
+                        <tr>
+                            <th class="text-left py-2">Receipt</th>
+                            <th class="text-left py-2">Date & Time</th>
+                            <th class="text-left py-2">Customer</th>
+                            <th class="text-left py-2">Vehicle</th>
+                            <th class="text-left py-2">Size</th>
+                            <th class="text-left py-2">Assigned Staff</th>
+                            <th class="text-right py-2">Total</th>
+                            <th class="text-left py-2">Payment</th>
+                            <th class="text-center py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${txRows || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No transactions today</td></tr>'}
+                    </tbody>
+                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
+                        <tr><td colspan="6" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalSales.toFixed(2)}</td><td colspan="2"></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    window.editTransactionVehicle = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newVal = prompt("Edit vehicle:", t.vehicle);
+            if(newVal !== null) {
+                t.vehicle = newVal;
+                saveToLocal(); renderApp();
+            }
+        }
+    };
+
+    window.editTransactionPayment = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const methods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer'];
+            const newVal = prompt("Edit payment method:", t.paymentMethod || 'Cash');
+            if(newVal && methods.includes(newVal)) {
+                t.paymentMethod = newVal;
+                saveToLocal(); renderApp();
+            } else if(newVal) {
+                alert("Payment method must be one of: " + methods.join(', '));
+            }
+        }
+    };
+
+    window.openTransactionEdit = (id) => {
+        // Quick inline edit via modal
+        editTransactionFull(id);
+    };
+
+    window.exportDailyExcel = () => {
+        const today = new Date().toISOString().slice(0,10);
+        const dailyTx = appData.transactions.filter(t => t.date.startsWith(today));
+        const wb = XLSX.utils.book_new();
+        let data = [
+            [`${appData.systemSettings.companyName} - Daily Transactions`],
+            [`Date: ${today}`],
+            ['Receipt', 'Date & Time', 'Customer', 'Vehicle', 'Size', 'Assigned Staff', 'Total', 'Payment Method', 'Remarks']
+        ];
+        dailyTx.forEach(t => {
+            const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
+            const size = t.items.map(i => i.variant).join(', ') || 'N/A';
+            const remarks = t.remarks || '';
+            data.push([t.id, new Date(t.date).toLocaleString(), t.customer, t.vehicle, size, staffNames, t.total, t.paymentMethod, remarks]);
+        });
+        data.push([], ['TOTAL SALES:', '', '', '', '', '', dailyTx.reduce((s,t)=>s+t.total,0)]);
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = data[0].map(() => ({ wch: 18 }));
+        XLSX.utils.book_append_sheet(wb, ws, 'Daily Transactions');
+        XLSX.writeFile(wb, `daily_transactions_${today}.xlsx`);
+        alert('✅ Daily transactions exported to Excel!');
+    };
+
+    window.printDailyTransactions = () => {
+        const printContent = document.querySelector('.card-premium').cloneNode(true);
+        const win = window.open('', '_blank');
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
+        win.document.write(`<html><head><title>Daily Transactions</title><style>
+            body{font-family:monospace;padding:20px;background:white;color:black;}
+            .center{text-align:center;}
+            table{width:100%;border-collapse:collapse;font-size:11px;}
+            th,td{border:1px solid #ddd;padding:6px;}
+            th{background:#f0f0f0;}
+            .header{margin-bottom:20px;}
+        </style></head><body>
+            ${logoHtml}
+            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Daily Transactions - ${new Date().toISOString().slice(0,10)}</p></div>
+            ${printContent.innerHTML}
+        </body></html>`);
+        win.document.close();
+        win.print();
+    };
+
+    // ======================== ENHANCED WEEKLY COMMISSION REPORT (WITH CALENDAR DATES) ========================
     function renderWeeklyCommissionReport() {
         if(showLogin) return renderLogin();
         recalculateStaffCommissions();
@@ -459,9 +591,16 @@
         weekEnd.setDate(currentWeekStart.getDate() + 6);
         const weekEndStr = weekEnd.toISOString().slice(0,10);
 
+        // Build date range for the week
+        const weekDates = [];
+        for (let d = 0; d < 7; d++) {
+            const dt = new Date(currentWeekStart);
+            dt.setDate(currentWeekStart.getDate() + d);
+            weekDates.push({ date: dt, dateStr: dt.toISOString().slice(0,10), dayName: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][dt.getDay()] });
+        }
+
         const weekTx = appData.transactions.filter(t => t.date >= weekStartStr && t.date <= weekEndStr);
         
-        // Compute weekly breakdown per staff
         const weekStaffMap = {};
         appData.staff.forEach(s => {
             weekStaffMap[s.id] = {
@@ -472,8 +611,8 @@
                 sales: 0,
                 sunday: 0, monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0, saturday: 0,
                 total: 0,
-                part1: 0, // Sun-Tue
-                part2: 0  // Wed-Sat
+                part1: 0,
+                part2: 0
             };
         });
 
@@ -494,11 +633,15 @@
             }
         });
 
-        // Compute part totals
         Object.values(weekStaffMap).forEach(s => {
             s.part1 = (s.sunday || 0) + (s.monday || 0) + (s.tuesday || 0);
             s.part2 = (s.wednesday || 0) + (s.thursday || 0) + (s.friday || 0) + (s.saturday || 0);
         });
+
+        // Build calendar header with dates
+        const dayHeaders = weekDates.map(wd => 
+            `<th class="text-center py-1 text-cyan-300 text-xs">${wd.dayName.slice(0,3)}<br><span class="text-gray-500 text-[10px]">${wd.dateStr}</span></th>`
+        ).join('');
 
         let tableRows = '';
         let grandTotal = 0;
@@ -544,18 +687,16 @@
                         <tr>
                             <th class="text-left">Staff</th><th class="text-left">Position</th><th class="text-center">Tier</th>
                             <th class="text-center">Jobs</th><th class="text-right">Sales</th>
-                            <th class="text-center">Sun</th><th class="text-center">Mon</th><th class="text-center">Tue</th>
-                            <th class="text-center">Wed</th><th class="text-center">Thu</th><th class="text-center">Fri</th><th class="text-center">Sat</th>
+                            ${dayHeaders}
                             <th class="text-center text-yellow-400">Sun-Tue</th>
                             <th class="text-center text-yellow-400">Wed-Sat</th>
                             <th class="text-center text-green-400">Grand Total</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${tableRows || '<tr><td colspan="15" class="text-center py-4 text-gray-400">No data for this week</td></tr>'}
+                        ${tableRows || '<tr><td colspan="16" class="text-center py-4 text-gray-400">No data for this week</td></tr>'}
                         <tr class="border-t-2 border-cyan-400 bg-gray-800 font-bold">
-                            <td colspan="3" class="py-2 text-right">TOTALS:</td>
-                            <td class="text-center">${grandJobs}</td>
+                            <td colspan="4" class="py-2 text-right">TOTALS:</td>
                             <td class="text-right">₱${grandSales.toFixed(2)}</td>
                             <td colspan="7"></td>
                             <td class="text-center text-yellow-400">₱${Object.values(weekStaffMap).reduce((s, item) => s + item.part1, 0).toFixed(2)}</td>
@@ -619,7 +760,7 @@
         ws['!cols'] = data[0].map(() => ({ wch: 14 }));
         XLSX.utils.book_append_sheet(wb, ws, 'Weekly Commission');
         XLSX.writeFile(wb, `weekly_commission_${weekStart.toISOString().slice(0,10)}.xlsx`);
-        alert('✅ Weekly Commission exported!');
+        alert('✅ Weekly Commission exported to Excel!');
     };
 
     window.printWeeklyCommission = () => {
@@ -643,7 +784,7 @@
         win.print();
     };
 
-    // ======================== REPORT SUMMARIES WITH CALENDAR ========================
+    // ======================== REPORT SUMMARIES ========================
     function renderReportSummaries() {
         if(showLogin) return renderLogin();
         
@@ -651,14 +792,12 @@
         const currentMonth = today.getMonth();
         const currentYear = today.getFullYear();
         
-        // Daily Report
         const todayStr = today.toISOString().slice(0,10);
         const dailyTx = appData.transactions.filter(t => t.date.startsWith(todayStr));
         const dailySales = dailyTx.reduce((s,t)=>s+t.total,0);
         const dailyExpenses = appData.expenses.filter(e => e.date === todayStr).reduce((s,e)=>s+e.amount,0);
         const dailyCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
         
-        // Weekly Report
         const weekStart = new Date(today);
         weekStart.setDate(today.getDate() - today.getDay());
         const weekStartStr = weekStart.toISOString().slice(0,10);
@@ -666,17 +805,14 @@
         const weeklySales = weekTx.reduce((s,t)=>s+t.total,0);
         const weeklyExpenses = appData.expenses.filter(e => e.date >= weekStartStr).reduce((s,e)=>s+e.amount,0);
         
-        // Monthly Report
         const monthTx = appData.transactions.filter(t => new Date(t.date).getMonth() === currentMonth && new Date(t.date).getFullYear() === currentYear);
         const monthlySales = monthTx.reduce((s,t)=>s+t.total,0);
         const monthlyExpenses = appData.expenses.filter(e => new Date(e.date).getMonth() === currentMonth && new Date(e.date).getFullYear() === currentYear).reduce((s,e)=>s+e.amount,0);
         
-        // Yearly Report
         const yearTx = appData.transactions.filter(t => new Date(t.date).getFullYear() === currentYear);
         const yearlySales = yearTx.reduce((s,t)=>s+t.total,0);
         const yearlyExpenses = appData.expenses.filter(e => new Date(e.date).getFullYear() === currentYear).reduce((s,e)=>s+e.amount,0);
         
-        // Calendar for current month
         const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
         const firstDay = new Date(currentYear, currentMonth, 1).getDay();
         const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -699,14 +835,12 @@
         return `<div class="grid lg:grid-cols-2 gap-6">
             <div class="card-premium p-6">
                 <h2 class="text-2xl font-bold mb-4"><i class="fas fa-chart-line"></i> Report Summaries</h2>
-                
                 <div class="flex gap-2 mb-4 flex-wrap">
                     <button onclick="setReportPeriod('daily')" class="px-3 py-1 rounded ${reportPeriod === 'daily' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Daily</button>
                     <button onclick="setReportPeriod('weekly')" class="px-3 py-1 rounded ${reportPeriod === 'weekly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Weekly</button>
                     <button onclick="setReportPeriod('monthly')" class="px-3 py-1 rounded ${reportPeriod === 'monthly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Monthly</button>
                     <button onclick="setReportPeriod('yearly')" class="px-3 py-1 rounded ${reportPeriod === 'yearly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Yearly</button>
                 </div>
-                
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div class="bg-gray-800 p-3 rounded-lg text-center">
                         <div class="stat-label">${reportPeriod === 'daily' ? 'Today' : reportPeriod === 'weekly' ? 'This Week' : reportPeriod === 'monthly' ? 'This Month' : 'This Year'} Sales</div>
@@ -725,7 +859,6 @@
                         <div class="stat-number text-cyan-400">₱${(reportPeriod === 'daily' ? dailySales - dailyExpenses : reportPeriod === 'weekly' ? weeklySales - weeklyExpenses : reportPeriod === 'monthly' ? monthlySales - monthlyExpenses : yearlySales - yearlyExpenses).toFixed(2)}</div>
                     </div>
                 </div>
-                
                 <div class="bg-gray-800 p-3 rounded-lg">
                     <div class="flex justify-between items-center mb-2">
                         <span class="text-sm font-bold">${monthName}</span>
@@ -746,7 +879,6 @@
                         <span><span class="inline-block w-3 h-3 rounded border border-cyan-400"></span> Today</span>
                     </div>
                 </div>
-                
                 <div class="flex gap-2 mt-4 flex-wrap">
                     <button onclick="printReportSummary()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print Report</button>
                     <button onclick="exportReportSummaryExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
@@ -755,7 +887,6 @@
             
             <div class="card-premium p-6">
                 <h2 class="text-2xl font-bold mb-4"><i class="fas fa-file-invoice-dollar"></i> Staff Commission Report</h2>
-                
                 <div class="grid grid-cols-2 gap-3 mb-4">
                     <div class="bg-gray-800 p-3 rounded-lg text-center">
                         <div class="stat-label">Total Staff</div>
@@ -766,7 +897,6 @@
                         <div class="stat-number text-yellow-400">₱${appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0).toFixed(2)}</div>
                     </div>
                 </div>
-                
                 <div class="mt-4 max-h-48 overflow-y-auto">
                     <table class="w-full text-sm">
                         <thead class="sticky top-0 bg-gray-900 border-b border-yellow-400">
@@ -788,7 +918,6 @@
                         </tbody>
                     </table>
                 </div>
-                
                 <div class="flex gap-2 mt-4 flex-wrap">
                     <button onclick="printCommissionReport()" class="bg-cyan-600 px-4 py-2 rounded text-sm"><i class="fas fa-print"></i> Print Commission</button>
                     <button onclick="exportCommissionReportExcel()" class="excel-export-btn px-4 py-2 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
@@ -802,7 +931,6 @@
         renderApp();
     };
 
-    // ======================== PRINT/EXPORT FUNCTIONS ========================
     window.printReportSummary = () => {
         const printContent = document.querySelector('.card-premium').cloneNode(true);
         const win = window.open('', '_blank');
@@ -850,7 +978,6 @@
     window.exportReportSummaryExcel = () => {
         const wb = XLSX.utils.book_new();
         const today = new Date();
-        const monthName = today.toLocaleString('default', { month: 'long', year: 'numeric' });
         let data = [
             [`${appData.systemSettings.companyName} - Report Summary`],
             [`Generated: ${new Date().toLocaleString()}`],
@@ -950,7 +1077,6 @@
             <div class="text-sm text-gray-400">${appData.systemSettings.businessHours}</div>
         </div>
         
-        <!-- Stats Cards -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
             <div class="stat-card text-center bg-gray-800 p-3 rounded-lg">
                 <div class="stat-label">Today's Sales</div>
@@ -1043,7 +1169,7 @@
         <\/script>`;
     }
 
-    // ======================== OPEN SERVICES ========================
+    // ======================== OPEN SERVICES (AUTO-COMMISSION SYNC) ========================
     function createOpenService(customer, vehicle, plate, items, staff, total, remarks) {
         const openService = {
             id: "OS-" + new Date().getFullYear() + "-" + (appData.nextIds.openService++),
@@ -1145,6 +1271,8 @@
         service.transactionId = transaction.id;
 
         saveToLocal();
+        // Recalculate to ensure weekly breakdown sync
+        recalculateStaffCommissions();
     }
 
     function completeOpenServicePayment(id, paymentMethod, cashTendered) {
@@ -1185,6 +1313,7 @@
         service.status = 'paid';
         
         saveToLocal();
+        recalculateStaffCommissions();
         alert(`✅ Payment Completed!\nTotal: ₱${total.toFixed(2)}`);
         print58mmReceipt(transaction);
         
@@ -1260,7 +1389,7 @@
             <div class="flex justify-between items-center mb-4">
                 <div>
                     <h2 class="text-2xl font-bold"><i class="fas fa-clipboard-list"></i> Open Services Dashboard</h2>
-                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-sync"></i> Auto-commission on completion</p>
+                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-sync"></i> Auto-commission sync to Weekly Report</p>
                 </div>
                 <div class="flex gap-2">
                     <span class="text-sm text-gray-400">Pending: ${pendingServices.length} | Completed: ${completedServices.length}</span>
@@ -1490,6 +1619,7 @@
         if(selectedCustomer) { let earnedPoints = Math.floor(total * appData.systemSettings.loyaltyPointsPerPeso); selectedCustomer.loyaltyPoints = (selectedCustomer.loyaltyPoints || 0) + earnedPoints; const idx = appData.customers.findIndex(c=>c.id === selectedCustomer.id); if(idx !== -1) appData.customers[idx].loyaltyPoints = selectedCustomer.loyaltyPoints; }
         
         saveToLocal();
+        recalculateStaffCommissions();
         alert(`✅ SALE COMPLETED!\nTotal: ₱${total.toFixed(2)}`);
         print58mmReceipt(transaction);
         posCart = []; selectedCustomer = null; vehicleInfo = { plate: "", model: "", size: "Medium" }; discount = 0; loyaltyPointsUsed = 0; cashTendered = 0; cartRemarks = "";
@@ -1698,9 +1828,9 @@
         }
         
         const adminPanels = [
+            { id: 'dailytransactions', icon: 'fa-calendar-day', label: 'Daily Transactions' },
             { id: 'reports', icon: 'fa-chart-pie', label: 'Report Summaries' },
             { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Dashboard' },
-            { id: 'transactions', icon: 'fa-receipt', label: 'Transactions' },
             { id: 'weeklycommission', icon: 'fa-calendar-week', label: 'Weekly Commission' },
             { id: 'services', icon: 'fa-concierge-bell', label: 'Services' },
             { id: 'categories', icon: 'fa-tags', label: 'Categories' },
@@ -1714,9 +1844,9 @@
         ];
         
         let content = '';
-        if(currentAdminPanel === 'reports') content = renderReportSummaries();
+        if(currentAdminPanel === 'dailytransactions') content = renderDailyTransactionManagement();
+        else if(currentAdminPanel === 'reports') content = renderReportSummaries();
         else if(currentAdminPanel === 'dashboard') content = renderDashboard();
-        else if(currentAdminPanel === 'transactions') content = renderAdminTransactions();
         else if(currentAdminPanel === 'weeklycommission') content = renderWeeklyCommissionReport();
         else if(currentAdminPanel === 'services') content = renderAdminServices();
         else if(currentAdminPanel === 'categories') content = renderAdminCategories();
@@ -1741,232 +1871,16 @@
                         <div>TX: ${appData.transactions.length}</div>
                     </div>
                     <div class="mt-2 text-cyan-400 text-[10px]">Last Saved: ${new Date().toLocaleTimeString()}</div>
-                    <div class="mt-1 text-green-400 text-[10px]">📊 v8.1 - Weekly Commission Report</div>
+                    <div class="mt-1 text-green-400 text-[10px]">📊 v8.2 - Daily TX + Auto-Commission Sync</div>
                 </div>
             </div>
             <div class="admin-content card-premium p-5">${content}</div>
         </div>`;
     }
 
-    // ======================== ADMIN - TRANSACTIONS (REALTIME COMMISSION UPDATE) ========================
+    // ======================== ADMIN - TRANSACTIONS (LEGACY SUPPORT) ========================
     function renderAdminTransactions() {
-        if(showLogin) return renderLogin();
-        recalculateStaffCommissions();
-        
-        let txHtml = appData.transactions.map(t => `
-            <tr class="border-b border-gray-700 transaction-row">
-                <td class="py-2 font-mono text-xs">${t.id}</td>
-                <td class="editable-field cursor-pointer" onclick="editTransactionDate('${t.id}')">${new Date(t.date).toLocaleString()}</td>
-                <td class="editable-field cursor-pointer" onclick="editTransactionCustomer('${t.id}')">${t.customer}</td>
-                <td>${t.vehicle}</td>
-                <td>${t.items.map(i => `${i.serviceName} (${i.variant})`).join(', ')}</td>
-                <td>${t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned'}</td>
-                <td class="text-green-400 font-bold editable-field cursor-pointer" onclick="editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
-                <td>${t.paymentMethod || 'Cash'}</td>
-                <td>
-                    <button onclick="editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit Full"><i class="fas fa-edit"></i></button>
-                    <button onclick="deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
-                    <button onclick="printReceiptFromTransaction('${t.id}')" class="action-btn bg-green-600 text-white hover:bg-green-700" title="Print"><i class="fas fa-print"></i></button>
-                </td>
-            </tr>
-        `).join('');
-
-        const totalIncome = appData.transactions.reduce((s,t)=>s+t.total,0);
-        const totalCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
-
-        return `<div class="card-premium p-5">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="text-xl font-bold"><i class="fas fa-receipt"></i> Transaction Management</h3>
-                <div class="flex gap-2 flex-wrap">
-                    <span class="text-sm text-gray-400">Total: ${appData.transactions.length}</span>
-                    <span class="text-sm text-green-400">Revenue: ₱${totalIncome.toFixed(2)}</span>
-                    <span class="text-sm text-yellow-400">Commissions: ₱${totalCommission.toFixed(2)}</span>
-                    <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add</button>
-                    <button onclick="refreshTransactions()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-sync"></i> Refresh</button>
-                </div>
-            </div>
-            <div class="overflow-x-auto max-h-96 overflow-y-auto">
-                <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
-                        <tr><th class="text-left py-2">Receipt</th><th class="text-left py-2">Date & Time</th><th class="text-left py-2">Customer</th><th class="text-left py-2">Vehicle</th><th class="text-left py-2">Service</th><th class="text-left py-2">Staff</th><th class="text-right py-2">Total</th><th class="text-left py-2">Payment</th><th class="text-center py-2">Actions</th></tr>
-                    </thead>
-                    <tbody>
-                        ${txHtml || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No transactions</td></tr>'}
-                    </tbody>
-                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
-                        <tr><td colspan="6" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalIncome.toFixed(2)}</td><td colspan="2"></td></tr>
-                    </tfoot>
-                </table>
-            </div>
-        </div>`;
-    }
-
-    window.editTransactionAmount = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newAmt = parseFloat(prompt("Edit amount:", t.total));
-            if(!isNaN(newAmt) && newAmt > 0) {
-                updateTransactionAndCommissions(id, { total: newAmt, subtotal: newAmt });
-                alert("✅ Amount updated! Commissions recalculated.");
-            }
-        }
-    };
-
-    window.editTransactionCustomer = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newName = prompt("Edit customer:", t.customer);
-            if(newName !== null) {
-                updateTransactionAndCommissions(id, { customer: newName });
-                alert("✅ Customer updated!");
-            }
-        }
-    };
-
-    window.editTransactionDate = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newDate = prompt("Edit date (YYYY-MM-DD):", new Date(t.date).toISOString().slice(0,10));
-            if(newDate) {
-                updateTransactionAndCommissions(id, { date: new Date(newDate).toISOString() });
-                alert("✅ Date updated!");
-            }
-        }
-    };
-
-    window.editTransactionFull = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(!t) return;
-        
-        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
-            <h3 class="text-xl font-bold mb-4">Edit Transaction</h3>
-            <div class="space-y-3">
-                <div><label class="text-gray-400">Customer</label><input type="text" id="editTxCustomer" class="w-full bg-gray-800 p-2 rounded" value="${t.customer}"></div>
-                <div><label class="text-gray-400">Amount</label><input type="number" id="editTxAmount" class="w-full bg-gray-800 p-2 rounded" value="${t.total}" step="0.01"></div>
-                <div><label class="text-gray-400">Vehicle</label><input type="text" id="editTxVehicle" class="w-full bg-gray-800 p-2 rounded" value="${t.vehicle}"></div>
-                <div><label class="text-gray-400">Plate</label><input type="text" id="editTxPlate" class="w-full bg-gray-800 p-2 rounded" value="${t.plate}"></div>
-                <div><label class="text-gray-400">Payment</label><select id="editTxPayment" class="w-full bg-gray-800 p-2 rounded">
-                    <option ${t.paymentMethod==="Cash"?"selected":""}>Cash</option>
-                    <option ${t.paymentMethod==="GCash"?"selected":""}>GCash</option>
-                    <option ${t.paymentMethod==="Maya"?"selected":""}>Maya</option>
-                    <option ${t.paymentMethod==="Credit Card"?"selected":""}>Credit Card</option>
-                    <option ${t.paymentMethod==="Bank Transfer"?"selected":""}>Bank Transfer</option>
-                </select></div>
-                <div class="flex gap-3 mt-4">
-                    <button onclick="confirmEditTransaction('${id}')" class="btn-neon flex-1 p-2 rounded">Update</button>
-                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
-                </div>
-            </div>
-        </div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    };
-
-    window.confirmEditTransaction = (id) => {
-        const customer = document.getElementById('editTxCustomer')?.value;
-        const amount = parseFloat(document.getElementById('editTxAmount')?.value);
-        const vehicle = document.getElementById('editTxVehicle')?.value;
-        const plate = document.getElementById('editTxPlate')?.value;
-        const payment = document.getElementById('editTxPayment')?.value;
-        
-        const updates = {};
-        if(customer) updates.customer = customer;
-        if(!isNaN(amount) && amount > 0) { updates.total = amount; updates.subtotal = amount; }
-        if(vehicle) updates.vehicle = vehicle;
-        if(plate) updates.plate = plate;
-        if(payment) updates.paymentMethod = payment;
-        
-        updateTransactionAndCommissions(id, updates);
-        closeAdminModal();
-        alert("✅ Transaction updated! Commissions recalculated.");
-        renderApp();
-    };
-
-    window.deleteTransactionAndCommission = (id) => {
-        if (!confirm("Delete this transaction? This will remove associated commissions.")) return;
-
-        const txIndex = appData.transactions.findIndex(t => t.id === id);
-        if (txIndex === -1) return;
-
-        appData.transactions.splice(txIndex, 1);
-        recalculateStaffCommissions();
-        saveToLocal();
-        renderApp();
-        alert("✅ Transaction deleted and commissions updated!");
-    };
-
-    window.printReceiptFromTransaction = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) print58mmReceipt(t);
-    };
-
-    window.showAddTransactionModal = () => {
-        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
-            <h3 class="text-xl font-bold mb-4">Add Manual Transaction</h3>
-            <div class="space-y-3">
-                <div><label class="text-gray-400">Customer</label><input type="text" id="txCustomerInput" class="w-full bg-gray-800 p-2 rounded" value="Walk-in Customer"></div>
-                <div><label class="text-gray-400">Amount</label><input type="number" id="txAmountInput" class="w-full bg-gray-800 p-2 rounded" step="0.01"></div>
-                <div><label class="text-gray-400">Vehicle</label><input type="text" id="txVehicleInput" class="w-full bg-gray-800 p-2 rounded" placeholder="Toyota Vios"></div>
-                <div><label class="text-gray-400">Plate</label><input type="text" id="txPlateInput" class="w-full bg-gray-800 p-2 rounded"></div>
-                <div><label class="text-gray-400">Payment</label><select id="txPaymentInput" class="w-full bg-gray-800 p-2 rounded">
-                    <option>Cash</option><option>GCash</option><option>Maya</option><option>Credit Card</option><option>Bank Transfer</option>
-                </select></div>
-                <div class="flex gap-3 mt-4">
-                    <button onclick="confirmAddTransaction()" class="btn-neon flex-1 p-2 rounded">Add</button>
-                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
-                </div>
-            </div>
-        </div></div>`;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    };
-
-    window.confirmAddTransaction = () => {
-        const customer = document.getElementById('txCustomerInput')?.value || "Walk-in Customer";
-        const amount = parseFloat(document.getElementById('txAmountInput')?.value);
-        const vehicle = document.getElementById('txVehicleInput')?.value || "N/A";
-        const plate = document.getElementById('txPlateInput')?.value || "N/A";
-        const payment = document.getElementById('txPaymentInput')?.value || "Cash";
-        
-        if(isNaN(amount) || amount <= 0) { alert("Valid amount required!"); return; }
-        
-        const transaction = {
-            id: generateReceiptNo(),
-            date: new Date().toISOString(),
-            customer: customer,
-            vehicle: vehicle,
-            plate: plate,
-            items: [{ serviceName: "Manual Entry", variant: "Standard", price: amount, quantity: 1, total: amount, assignedStaff: [], remarks: "Manual transaction" }],
-            subtotal: amount,
-            discount: 0,
-            loyaltyUsed: 0,
-            total: amount,
-            paymentMethod: payment,
-            cashTendered: amount,
-            change: 0,
-            remarks: "Manual transaction added via admin"
-        };
-        
-        appData.transactions.unshift(transaction);
-        saveToLocal();
-        closeAdminModal();
-        renderApp();
-        alert("✅ Transaction added!");
-    };
-
-    window.refreshTransactions = () => {
-        recalculateStaffCommissions();
-        renderApp();
-        alert("✅ Transactions refreshed! Commissions recalculated.");
-    };
-
-    function updateTransactionAndCommissions(transactionId, updatedData) {
-        const txIndex = appData.transactions.findIndex(t => t.id === transactionId);
-        if (txIndex === -1) return false;
-
-        appData.transactions[txIndex] = { ...appData.transactions[txIndex], ...updatedData };
-        recalculateStaffCommissions();
-        saveToLocal();
-        renderApp();
-        return true;
+        return renderDailyTransactionManagement();
     }
 
     // ======================== ADMIN - SERVICES ========================
@@ -2397,13 +2311,13 @@
             </div>
             <div class="mt-4 p-3 bg-gray-800 rounded-lg text-xs">
                 <div class="text-gray-400">System Info</div>
-                <div>Version: 8.1 Enterprise | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
+                <div>Version: 8.2 Enterprise | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
                 <div>Records: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff</div>
                 <div>Commission Entries: ${Object.keys(appData.commissionMatrix || {}).length}</div>
                 <div>Open Services: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
                 <div>Receipt: 58mm Thermal with Auto-Cut</div>
-                <div class="mt-1 text-green-400">📊 Enhanced Weekly Commission Report</div>
-                <div class="mt-1 text-cyan-400">📅 Real-time commission updates on edit/delete</div>
+                <div class="mt-1 text-green-400">📊 Daily Transaction Management + Auto-Commission Sync</div>
+                <div class="mt-1 text-cyan-400">📅 Weekly Commission with Calendar Dates</div>
             </div>
         </div>`;
     }
@@ -2525,7 +2439,7 @@
             <div class="flex flex-wrap justify-between items-center border-b border-blue-800 pb-4 mb-6">
                 <div class="flex items-center gap-3">
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="company-logo" alt="Logo">` : ''}
-                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.1</p></div>
+                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.2</p></div>
                 </div>
                 <div class="flex gap-2 flex-wrap mt-2">
                     <button onclick="navigate('dashboard')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-line"></i> Dashboard</button>
@@ -2538,15 +2452,15 @@
                 </div>
             </div>
             <div id="mainContent"></div>
-            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | v8.1</footer>
+            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | v8.2</footer>
         </div>
     `;
     renderApp();
     saveToLocal();
 
-    console.log('%c8068 CAR SQUARE - Enterprise Management System v8.1', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
+    console.log('%c8068 CAR SQUARE - Enterprise Management System v8.2', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
     console.log(`%cRecords: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff`, 'color: #00ff88;');
-    console.log('%c📊 Enhanced Weekly Commission Report | Real-time updates on edit/delete', 'color: #ffaa00;');
+    console.log('%c📊 Daily Transaction Management | Auto-Commission Sync | Calendar-Based Weekly Reports', 'color: #ffaa00;');
 </script>
 </body>
 </html>
