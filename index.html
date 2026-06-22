@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>8068 CAR SQUARE | POS System v8.2</title>
+    <title>8068 CAR SQUARE | POS System v8.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -45,6 +45,7 @@
         .status-in-progress { background: #00d4ff33; color: #00d4ff; }
         .status-completed { background: #00ff8833; color: #00ff88; }
         .status-paid { background: #8888ff33; color: #8888ff; }
+        .credit-badge { background: #ff6b0033; color: #ff6b00; }
         .receipt-58mm { width: 58mm; margin: 0 auto; padding: 8px; background: white; color: black; font-family: 'Courier New', monospace; font-size: 11px; }
         .receipt-58mm .center { text-align: center; }
         .receipt-58mm .line { border-top: 1px dashed #000; margin: 4px 0; }
@@ -69,6 +70,7 @@
         .commission-summary-table th { padding: 8px 4px; border-bottom: 2px solid #00d4ff; color: #00d4ff; font-size: 11px; text-transform: uppercase; }
         .tx-row-clickable { cursor: pointer; transition: all 0.2s; }
         .tx-row-clickable:hover { background: rgba(0,212,255,0.05); }
+        .credit-row { border-left: 3px solid #ff6b00; }
         @media print {
             .no-print { display: none; }
             .receipt-58mm { width: 58mm; margin: 0; padding: 4px; }
@@ -141,6 +143,7 @@
         openServices: [],
         staff: [],
         expenses: [],
+        credits: [], // Credit (Utang) records
         inventory: [
             { id: 1, name: "Car Shampoo", category: "Supplies", quantity: 50, unit: "Liters", reorderLevel: 20 },
             { id: 2, name: "Microfiber Towels", category: "Equipment", quantity: 200, unit: "Pieces", reorderLevel: 50 },
@@ -162,7 +165,7 @@
             timezone: "Asia/Manila",
             businessHours: "Mon-Sat 8:00 AM - 7:00 PM",
             companyLogo: null,
-            defaultPaymentMethods: ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer']
+            defaultPaymentMethods: ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)']
         },
         users: [
             { id: 1, username: "owner", password: "owner123", role: "Owner", name: "Owner", isActive: true },
@@ -171,7 +174,7 @@
             { id: 4, username: "staff", password: "staff123", role: "Staff", name: "Staff", isActive: true }
         ],
         currentUser: null,
-        nextIds: { transaction: 100, customer: 50, expense: 20, service: 50, openService: 1 },
+        nextIds: { transaction: 100, customer: 50, expense: 20, service: 50, openService: 1, credit: 1 },
         commissionMatrix: initializeCommissionMatrix()
     };
 
@@ -213,6 +216,7 @@
             }
             if (!appData.openServices) appData.openServices = [];
             if (!appData.inventory) appData.inventory = [];
+            if (!appData.credits) appData.credits = [];
             if (!appData.users) appData.users = [
                 { id: 1, username: "owner", password: "owner123", role: "Owner", name: "Owner", isActive: true },
                 { id: 2, username: "manager", password: "manager123", role: "Manager", name: "Manager", isActive: true },
@@ -221,7 +225,7 @@
             ];
             if (!appData.currentUser) appData.currentUser = appData.users[0];
             if (!appData.systemSettings.defaultPaymentMethods) {
-                appData.systemSettings.defaultPaymentMethods = ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer'];
+                appData.systemSettings.defaultPaymentMethods = ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)'];
             }
         } catch(e) {}
     }
@@ -255,10 +259,11 @@
     let cartRemarks = "";
     let showLogin = true;
     let reportPeriod = 'daily';
+    let transactionFilter = 'daily'; // daily, weekly, monthly, yearly
 
     function generateReceiptNo() { return "INV-" + new Date().getFullYear() + "-" + (appData.nextIds.transaction++); }
 
-    // ======================== RECALCULATE STAFF COMMISSIONS (FULL REBUILD) ========================
+    // ======================== RECALCULATE STAFF COMMISSIONS ========================
     function recalculateStaffCommissions() {
         appData.staff.forEach(s => {
             s.totalCommission = 0;
@@ -338,6 +343,8 @@
                 <div><span class="bold">Date:</span> ${new Date(tx.date).toLocaleString()}</div>
                 <div><span class="bold">Customer:</span> ${tx.customer}</div>
                 <div><span class="bold">Vehicle:</span> ${tx.vehicle} | ${tx.plate}</div>
+                <div><span class="bold">Payment:</span> ${tx.paymentMethod}</div>
+                ${tx.isCredit ? `<div><span class="bold">Credit (Utang):</span> PENDING</div>` : ''}
                 <div class="line"></div>
                 ${tx.items.map(i => `
                     <div class="item">
@@ -356,6 +363,7 @@
                 <div class="line"></div>
                 <div><span class="bold">Payment:</span> ${tx.paymentMethod}</div>
                 ${tx.paymentMethod === 'Cash' ? `<div><span class="bold">Tendered:</span> ₱${tx.cashTendered.toFixed(2)}</div><div><span class="bold">Change:</span> ₱${tx.change.toFixed(2)}</div>` : ''}
+                ${tx.isCredit ? `<div class="bold" style="color:#ff6b00;">⚠️ CREDIT (UTANG) - PENDING PAYMENT</div>` : ''}
                 <div class="line"></div>
                 <div class="center thankyou">Thank You For Choosing</div>
                 <div class="center thankyou">${appData.systemSettings.companyName}</div>
@@ -407,8 +415,8 @@
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="mx-auto max-h-20 mb-4">` : ''}
                     <h2 class="text-3xl font-bold glow-text">${appData.systemSettings.companyName}</h2>
                     <p class="text-gray-400 text-sm">${appData.systemSettings.tagline}</p>
-                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v8.2</p>
-                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-chart-line"></i> Daily Transaction Management + Auto-Commission Sync</p>
+                    <p class="text-cyan-400 text-xs mt-2">Enterprise POS System v8.3</p>
+                    <p class="text-xs text-green-400 mt-1"><i class="fas fa-chart-line"></i> Credit (Utang) + Transaction Tracking</p>
                 </div>
                 <div class="space-y-4">
                     <div><label class="text-gray-400">Username</label><input type="text" id="loginUser" class="w-full bg-gray-800 p-3 rounded border border-gray-700" placeholder="Enter username" value="owner"></div>
@@ -433,26 +441,416 @@
         }
     };
 
-    // ======================== DAILY TRANSACTION MANAGEMENT DASHBOARD ========================
+    // ======================== CREDIT (UTANG) MANAGEMENT ========================
+    function renderCreditManagement() {
+        if(showLogin) return renderLogin();
+        
+        const credits = appData.credits || [];
+        const totalCredit = credits.reduce((sum, c) => sum + (c.balance || 0), 0);
+        
+        let creditHtml = credits.map(c => `
+            <tr class="border-b border-gray-700 credit-row hover:bg-gray-800 transition">
+                <td class="py-2">${c.id}</td>
+                <td class="editable-field cursor-pointer" onclick="editCreditCustomer('${c.id}')">${c.customerName}</td>
+                <td class="editable-field cursor-pointer" onclick="editCreditContact('${c.id}')">${c.contact || '—'}</td>
+                <td>${c.transactionId || '—'}</td>
+                <td class="editable-field cursor-pointer" onclick="editCreditAmount('${c.id}')">₱${c.amount.toFixed(2)}</td>
+                <td class="editable-field cursor-pointer" onclick="editCreditPaid('${c.id}')">₱${(c.paid || 0).toFixed(2)}</td>
+                <td class="font-bold ${c.balance > 0 ? 'text-red-400' : 'text-green-400'}">₱${(c.balance || 0).toFixed(2)}</td>
+                <td class="text-xs">${new Date(c.date).toLocaleDateString()}</td>
+                <td>
+                    <button onclick="addCreditPayment('${c.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700"><i class="fas fa-plus"></i></button>
+                    <button onclick="deleteCredit('${c.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700"><i class="fas fa-trash"></i></button>
+                </td>
+            </tr>
+        `).join('');
+
+        return `<div class="card-premium p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-2xl font-bold"><i class="fas fa-hand-holding-usd"></i> Credit (Utang) Management</h2>
+                    <p class="text-sm text-gray-400">Total Outstanding: <span class="text-red-400 font-bold">₱${totalCredit.toFixed(2)}</span></p>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="showAddCreditModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add Credit</button>
+                    <button onclick="exportCreditExcel()" class="excel-export-btn px-3 py-1 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-orange-400">
+                        <tr>
+                            <th class="text-left py-2">#</th>
+                            <th class="text-left py-2">Customer</th>
+                            <th class="text-left py-2">Contact</th>
+                            <th class="text-left py-2">Transaction</th>
+                            <th class="text-right py-2">Amount</th>
+                            <th class="text-right py-2">Paid</th>
+                            <th class="text-right py-2">Balance</th>
+                            <th class="text-left py-2">Date</th>
+                            <th class="text-center py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${creditHtml || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No credit records found</td></tr>'}
+                    </tbody>
+                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-orange-400 font-bold">
+                        <tr><td colspan="6" class="py-2 text-right">TOTAL:</td><td class="text-right text-red-400">₱${totalCredit.toFixed(2)}</td><td colspan="2"></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    window.showAddCreditModal = () => {
+        const customerOptions = appData.customers.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Add Credit (Utang)</h3>
+            <div class="space-y-3">
+                <div><label class="text-gray-400">Customer</label>
+                    <select id="creditCustomerSelect" class="w-full bg-gray-800 p-2 rounded">
+                        <option value="new">+ New Customer</option>
+                        ${customerOptions}
+                    </select>
+                </div>
+                <div id="newCustomerFields" style="display:none;">
+                    <div><label class="text-gray-400">New Customer Name</label><input type="text" id="creditNewName" class="w-full bg-gray-800 p-2 rounded"></div>
+                    <div><label class="text-gray-400">Contact</label><input type="text" id="creditNewContact" class="w-full bg-gray-800 p-2 rounded"></div>
+                </div>
+                <div><label class="text-gray-400">Amount</label><input type="number" id="creditAmount" class="w-full bg-gray-800 p-2 rounded" step="0.01"></div>
+                <div><label class="text-gray-400">Transaction Reference</label><input type="text" id="creditTransactionId" class="w-full bg-gray-800 p-2 rounded" placeholder="INV-2026-001"></div>
+                <div><label class="text-gray-400">Date</label><input type="date" id="creditDate" class="w-full bg-gray-800 p-2 rounded" value="${new Date().toISOString().slice(0,10)}"></div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="confirmAddCredit()" class="btn-neon flex-1 p-2 rounded">Add Credit</button>
+                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
+                </div>
+            </div>
+        </div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        document.getElementById('creditCustomerSelect').addEventListener('change', function() {
+            document.getElementById('newCustomerFields').style.display = this.value === 'new' ? 'block' : 'none';
+        });
+    };
+
+    window.confirmAddCredit = () => {
+        const select = document.getElementById('creditCustomerSelect');
+        let customerName, contact = '';
+        if (select.value === 'new') {
+            customerName = document.getElementById('creditNewName')?.value?.trim() || 'Unknown Customer';
+            contact = document.getElementById('creditNewContact')?.value || '';
+            appData.customers.push({ id: Date.now(), name: customerName, mobile: contact, loyaltyPoints: 0 });
+        } else {
+            const cust = appData.customers.find(c => c.id === parseInt(select.value));
+            customerName = cust ? cust.name : 'Unknown Customer';
+            contact = cust ? cust.mobile || '' : '';
+        }
+        const amount = parseFloat(document.getElementById('creditAmount')?.value);
+        const transactionId = document.getElementById('creditTransactionId')?.value || 'N/A';
+        const date = document.getElementById('creditDate')?.value || new Date().toISOString().slice(0,10);
+        
+        if (!customerName || isNaN(amount) || amount <= 0) { alert("Valid customer and amount required!"); return; }
+        
+        appData.credits.push({
+            id: 'CR-' + new Date().getFullYear() + '-' + (appData.nextIds.credit++),
+            customerName: customerName,
+            contact: contact,
+            transactionId: transactionId,
+            amount: amount,
+            paid: 0,
+            balance: amount,
+            date: date,
+            status: 'pending'
+        });
+        saveToLocal(); closeAdminModal(); renderApp();
+        alert('✅ Credit added successfully!');
+    };
+
+    window.editCreditCustomer = (id) => {
+        const c = appData.credits.find(cr => cr.id === id);
+        if(c) {
+            const newName = prompt("Edit customer name:", c.customerName);
+            if(newName) { c.customerName = newName; saveToLocal(); renderApp(); }
+        }
+    };
+    window.editCreditContact = (id) => {
+        const c = appData.credits.find(cr => cr.id === id);
+        if(c) {
+            const newContact = prompt("Edit contact:", c.contact || '');
+            if(newContact !== null) { c.contact = newContact; saveToLocal(); renderApp(); }
+        }
+    };
+    window.editCreditAmount = (id) => {
+        const c = appData.credits.find(cr => cr.id === id);
+        if(c) {
+            const newAmt = parseFloat(prompt("Edit amount:", c.amount));
+            if(!isNaN(newAmt) && newAmt > 0) {
+                c.amount = newAmt;
+                c.balance = newAmt - (c.paid || 0);
+                saveToLocal(); renderApp();
+            }
+        }
+    };
+    window.editCreditPaid = (id) => {
+        const c = appData.credits.find(cr => cr.id === id);
+        if(c) {
+            const newPaid = parseFloat(prompt("Edit paid amount:", c.paid || 0));
+            if(!isNaN(newPaid) && newPaid >= 0 && newPaid <= c.amount) {
+                c.paid = newPaid;
+                c.balance = c.amount - newPaid;
+                if(c.balance <= 0) c.status = 'paid';
+                saveToLocal(); renderApp();
+            }
+        }
+    };
+    window.addCreditPayment = (id) => {
+        const c = appData.credits.find(cr => cr.id === id);
+        if(c) {
+            const payment = parseFloat(prompt(`Add payment for ${c.customerName} (Balance: ₱${c.balance.toFixed(2)})`, c.balance.toFixed(2)));
+            if(!isNaN(payment) && payment > 0 && payment <= c.balance) {
+                c.paid = (c.paid || 0) + payment;
+                c.balance = c.amount - c.paid;
+                if(c.balance <= 0) c.status = 'paid';
+                saveToLocal(); renderApp();
+                alert(`✅ Payment of ₱${payment.toFixed(2)} recorded! Remaining: ₱${c.balance.toFixed(2)}`);
+            }
+        }
+    };
+    window.deleteCredit = (id) => {
+        if(confirm("Delete this credit record?")) {
+            appData.credits = appData.credits.filter(c => c.id !== id);
+            saveToLocal(); renderApp();
+        }
+    };
+    window.exportCreditExcel = () => {
+        const wb = XLSX.utils.book_new();
+        let data = [
+            [`${appData.systemSettings.companyName} - Credit (Utang) Report`],
+            [`Generated: ${new Date().toLocaleString()}`],
+            [],
+            ['ID', 'Customer', 'Contact', 'Transaction', 'Amount', 'Paid', 'Balance', 'Date', 'Status']
+        ];
+        appData.credits.forEach(c => {
+            data.push([c.id, c.customerName, c.contact || '—', c.transactionId || '—', c.amount, c.paid || 0, c.balance, c.date, c.status]);
+        });
+        data.push([], ['TOTAL OUTSTANDING:', '', '', '', '', '', appData.credits.reduce((sum, c) => sum + (c.balance || 0), 0)]);
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = data[0].map(() => ({ wch: 18 }));
+        XLSX.utils.book_append_sheet(wb, ws, 'Credit Report');
+        XLSX.writeFile(wb, `credit_report_${new Date().toISOString().slice(0,10)}.xlsx`);
+        alert('✅ Credit report exported!');
+    };
+
+    // ======================== TRANSACTION TRACKING MANAGEMENT ========================
+    function renderTransactionTracking() {
+        if(showLogin) return renderLogin();
+        recalculateStaffCommissions();
+
+        const now = new Date();
+        let filteredTx = [];
+        let filterLabel = 'Today';
+        
+        if (transactionFilter === 'daily') {
+            const todayStr = now.toISOString().slice(0,10);
+            filteredTx = appData.transactions.filter(t => t.date.startsWith(todayStr));
+            filterLabel = 'Today';
+        } else if (transactionFilter === 'weekly') {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - now.getDay());
+            const weekStartStr = weekStart.toISOString().slice(0,10);
+            filteredTx = appData.transactions.filter(t => t.date >= weekStartStr);
+            filterLabel = 'This Week';
+        } else if (transactionFilter === 'monthly') {
+            const month = now.getMonth();
+            const year = now.getFullYear();
+            filteredTx = appData.transactions.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === month && d.getFullYear() === year;
+            });
+            filterLabel = 'This Month';
+        } else if (transactionFilter === 'yearly') {
+            const year = now.getFullYear();
+            filteredTx = appData.transactions.filter(t => new Date(t.date).getFullYear() === year);
+            filterLabel = 'This Year';
+        }
+
+        // Sort by date descending
+        filteredTx.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        let txRows = filteredTx.map((t, idx) => {
+            const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
+            const size = t.items.map(i => i.variant).join(', ') || 'N/A';
+            const serviceAvailed = t.items.map(i => i.serviceName).join(', ') || 'N/A';
+            const isCredit = t.paymentMethod === 'Credit (Utang)' || t.isCredit;
+            return `<tr class="border-b border-gray-700 tx-row-clickable ${isCredit ? 'credit-row' : ''}" onclick="openTransactionEdit('${t.id}')">
+                <td class="py-2 text-center text-xs text-gray-400">${idx + 1}</td>
+                <td class="py-2 font-mono text-xs">${t.id}</td>
+                <td class="py-2 text-xs">${new Date(t.date).toLocaleString()}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionCustomer('${t.id}')">${t.customer}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionVehicle('${t.id}')">${t.vehicle}</td>
+                <td class="text-xs">${size}</td>
+                <td class="text-xs">${serviceAvailed}</td>
+                <td class="text-xs">${staffNames}</td>
+                <td class="text-green-400 font-bold editable-field" onclick="event.stopPropagation();editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionPayment('${t.id}')">
+                    ${isCredit ? `<span class="credit-badge status-badge">CREDIT</span>` : t.paymentMethod || 'Cash'}
+                </td>
+                <td>
+                    <button onclick="event.stopPropagation();editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit"><i class="fas fa-edit"></i></button>
+                    <button onclick="event.stopPropagation();deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
+                    <button onclick="event.stopPropagation();printReceiptFromTransaction('${t.id}')" class="action-btn bg-green-600 text-white hover:bg-green-700" title="Print"><i class="fas fa-print"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        const totalSales = filteredTx.reduce((s,t)=>s+t.total,0);
+        const totalCommission = filteredTx.filter(t => t.staffCommissions).reduce((sum, t) => sum + Object.values(t.staffCommissions).reduce((s, st) => s + (st.commission || 0), 0), 0);
+        const creditTx = filteredTx.filter(t => t.paymentMethod === 'Credit (Utang)' || t.isCredit);
+        const totalCredit = creditTx.reduce((s,t)=>s+t.total,0);
+
+        return `<div class="card-premium p-6">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-2xl font-bold"><i class="fas fa-exchange-alt"></i> Transaction Tracking Management</h2>
+                    <p class="text-sm text-gray-400">${filterLabel} | ${filteredTx.length} transactions</p>
+                </div>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="setTransactionFilter('daily')" class="px-3 py-1 rounded ${transactionFilter === 'daily' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Daily</button>
+                    <button onclick="setTransactionFilter('weekly')" class="px-3 py-1 rounded ${transactionFilter === 'weekly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Weekly</button>
+                    <button onclick="setTransactionFilter('monthly')" class="px-3 py-1 rounded ${transactionFilter === 'monthly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Monthly</button>
+                    <button onclick="setTransactionFilter('yearly')" class="px-3 py-1 rounded ${transactionFilter === 'yearly' ? 'bg-cyan-600' : 'bg-gray-700'} text-sm">Yearly</button>
+                    <span class="text-sm text-green-400">Sales: ₱${totalSales.toFixed(2)}</span>
+                    <span class="text-sm text-yellow-400">Commission: ₱${totalCommission.toFixed(2)}</span>
+                    <span class="text-sm text-orange-400">Credit: ₱${totalCredit.toFixed(2)}</span>
+                    <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add</button>
+                    <button onclick="exportTransactionTrackingExcel()" class="excel-export-btn px-3 py-1 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export</button>
+                    <button onclick="printTransactionTracking()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-print"></i> Print</button>
+                </div>
+            </div>
+            <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                <table class="w-full text-sm">
+                    <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
+                        <tr>
+                            <th class="text-center py-2">#</th>
+                            <th class="text-left py-2">Receipt</th>
+                            <th class="text-left py-2">Date & Time</th>
+                            <th class="text-left py-2">Customer</th>
+                            <th class="text-left py-2">Vehicle</th>
+                            <th class="text-left py-2">Size</th>
+                            <th class="text-left py-2">Service Availed</th>
+                            <th class="text-left py-2">Assigned Staff</th>
+                            <th class="text-right py-2">Total</th>
+                            <th class="text-left py-2">Payment</th>
+                            <th class="text-center py-2">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${txRows || '<tr><td colspan="11" class="text-center py-8 text-gray-400">No transactions found</td></tr>'}
+                    </tbody>
+                    <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
+                        <tr><td colspan="8" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalSales.toFixed(2)}</td><td colspan="2"></td></tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>`;
+    }
+
+    window.setTransactionFilter = (filter) => {
+        transactionFilter = filter;
+        renderApp();
+    };
+
+    window.exportTransactionTrackingExcel = () => {
+        const wb = XLSX.utils.book_new();
+        const now = new Date();
+        let filteredTx = [];
+        if (transactionFilter === 'daily') {
+            const todayStr = now.toISOString().slice(0,10);
+            filteredTx = appData.transactions.filter(t => t.date.startsWith(todayStr));
+        } else if (transactionFilter === 'weekly') {
+            const weekStart = new Date(now);
+            weekStart.setDate(now.getDate() - now.getDay());
+            filteredTx = appData.transactions.filter(t => t.date >= weekStart.toISOString().slice(0,10));
+        } else if (transactionFilter === 'monthly') {
+            const month = now.getMonth();
+            const year = now.getFullYear();
+            filteredTx = appData.transactions.filter(t => {
+                const d = new Date(t.date);
+                return d.getMonth() === month && d.getFullYear() === year;
+            });
+        } else {
+            const year = now.getFullYear();
+            filteredTx = appData.transactions.filter(t => new Date(t.date).getFullYear() === year);
+        }
+        filteredTx.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        let data = [
+            [`${appData.systemSettings.companyName} - Transaction Tracking`],
+            [`Period: ${transactionFilter.toUpperCase()}`],
+            ['#', 'Receipt', 'Date & Time', 'Customer', 'Vehicle', 'Size', 'Service Availed', 'Assigned Staff', 'Total', 'Payment Method', 'Remarks']
+        ];
+        filteredTx.forEach((t, idx) => {
+            const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
+            const size = t.items.map(i => i.variant).join(', ') || 'N/A';
+            const serviceAvailed = t.items.map(i => i.serviceName).join(', ') || 'N/A';
+            data.push([idx+1, t.id, new Date(t.date).toLocaleString(), t.customer, t.vehicle, size, serviceAvailed, staffNames, t.total, t.paymentMethod, t.remarks || '']);
+        });
+        data.push([], ['TOTAL SALES:', '', '', '', '', '', '', '', filteredTx.reduce((s,t)=>s+t.total,0)]);
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        ws['!cols'] = data[0].map(() => ({ wch: 18 }));
+        XLSX.utils.book_append_sheet(wb, ws, 'Transaction Tracking');
+        XLSX.writeFile(wb, `transaction_tracking_${new Date().toISOString().slice(0,10)}.xlsx`);
+        alert('✅ Transaction tracking exported!');
+    };
+
+    window.printTransactionTracking = () => {
+        const printContent = document.querySelector('.card-premium').cloneNode(true);
+        const win = window.open('', '_blank');
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
+        win.document.write(`<html><head><title>Transaction Tracking</title><style>
+            body{font-family:monospace;padding:20px;background:white;color:black;}
+            .center{text-align:center;}
+            table{width:100%;border-collapse:collapse;font-size:10px;}
+            th,td{border:1px solid #ddd;padding:4px;}
+            th{background:#f0f0f0;}
+            .header{margin-bottom:20px;}
+        </style></head><body>
+            ${logoHtml}
+            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Transaction Tracking - ${transactionFilter.toUpperCase()}</p></div>
+            ${printContent.innerHTML}
+        </body></html>`);
+        win.document.close();
+        win.print();
+    };
+
+    // ======================== DAILY TRANSACTION MANAGEMENT (ENHANCED) ========================
     function renderDailyTransactionManagement() {
         if(showLogin) return renderLogin();
         recalculateStaffCommissions();
 
         const today = new Date().toISOString().slice(0,10);
         const dailyTx = appData.transactions.filter(t => t.date.startsWith(today));
+        dailyTx.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        let txRows = dailyTx.map(t => {
+        let txRows = dailyTx.map((t, idx) => {
             const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
             const size = t.items.map(i => i.variant).join(', ') || 'N/A';
-            return `<tr class="border-b border-gray-700 tx-row-clickable" onclick="openTransactionEdit('${t.id}')">
+            const serviceAvailed = t.items.map(i => i.serviceName).join(', ') || 'N/A';
+            const isCredit = t.paymentMethod === 'Credit (Utang)' || t.isCredit;
+            return `<tr class="border-b border-gray-700 tx-row-clickable ${isCredit ? 'credit-row' : ''}" onclick="openTransactionEdit('${t.id}')">
+                <td class="py-2 text-center text-xs text-gray-400">${idx + 1}</td>
                 <td class="py-2 font-mono text-xs">${t.id}</td>
                 <td class="py-2 text-xs">${new Date(t.date).toLocaleString()}</td>
                 <td class="editable-field" onclick="event.stopPropagation();editTransactionCustomer('${t.id}')">${t.customer}</td>
                 <td class="editable-field" onclick="event.stopPropagation();editTransactionVehicle('${t.id}')">${t.vehicle}</td>
                 <td class="text-xs">${size}</td>
+                <td class="text-xs">${serviceAvailed}</td>
                 <td class="text-xs">${staffNames}</td>
                 <td class="text-green-400 font-bold editable-field" onclick="event.stopPropagation();editTransactionAmount('${t.id}')">₱${t.total.toFixed(2)}</td>
-                <td class="editable-field" onclick="event.stopPropagation();editTransactionPayment('${t.id}')">${t.paymentMethod || 'Cash'}</td>
+                <td class="editable-field" onclick="event.stopPropagation();editTransactionPayment('${t.id}')">
+                    ${isCredit ? `<span class="credit-badge status-badge">CREDIT</span>` : t.paymentMethod || 'Cash'}
+                </td>
                 <td>
                     <button onclick="event.stopPropagation();editTransactionFull('${t.id}')" class="action-btn bg-cyan-600 text-white hover:bg-cyan-700" title="Edit"><i class="fas fa-edit"></i></button>
                     <button onclick="event.stopPropagation();deleteTransactionAndCommission('${t.id}')" class="action-btn bg-red-600 text-white hover:bg-red-700" title="Delete"><i class="fas fa-trash"></i></button>
@@ -463,6 +861,8 @@
 
         const totalSales = dailyTx.reduce((s,t)=>s+t.total,0);
         const totalCommission = dailyTx.filter(t => t.staffCommissions).reduce((sum, t) => sum + Object.values(t.staffCommissions).reduce((s, st) => s + (st.commission || 0), 0), 0);
+        const creditTx = dailyTx.filter(t => t.paymentMethod === 'Credit (Utang)' || t.isCredit);
+        const totalCredit = creditTx.reduce((s,t)=>s+t.total,0);
 
         return `<div class="card-premium p-6">
             <div class="flex justify-between items-center mb-4">
@@ -473,6 +873,7 @@
                 <div class="flex gap-2 flex-wrap">
                     <span class="text-sm text-green-400">Sales: ₱${totalSales.toFixed(2)}</span>
                     <span class="text-sm text-yellow-400">Commission: ₱${totalCommission.toFixed(2)}</span>
+                    <span class="text-sm text-orange-400">Credit: ₱${totalCredit.toFixed(2)}</span>
                     <button onclick="showAddTransactionModal()" class="bg-green-600 px-3 py-1 rounded text-sm"><i class="fas fa-plus"></i> Add</button>
                     <button onclick="exportDailyExcel()" class="excel-export-btn px-3 py-1 rounded text-sm text-white"><i class="fas fa-file-excel"></i> Export Excel</button>
                     <button onclick="printDailyTransactions()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-print"></i> Print</button>
@@ -482,11 +883,13 @@
                 <table class="w-full text-sm">
                     <thead class="sticky top-0 bg-gray-900 border-b-2 border-cyan-400">
                         <tr>
+                            <th class="text-center py-2">#</th>
                             <th class="text-left py-2">Receipt</th>
                             <th class="text-left py-2">Date & Time</th>
                             <th class="text-left py-2">Customer</th>
                             <th class="text-left py-2">Vehicle</th>
                             <th class="text-left py-2">Size</th>
+                            <th class="text-left py-2">Service Availed</th>
                             <th class="text-left py-2">Assigned Staff</th>
                             <th class="text-right py-2">Total</th>
                             <th class="text-left py-2">Payment</th>
@@ -494,91 +897,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        ${txRows || '<tr><td colspan="9" class="text-center py-8 text-gray-400">No transactions today</td></tr>'}
+                        ${txRows || '<tr><td colspan="11" class="text-center py-8 text-gray-400">No transactions today</td></tr>'}
                     </tbody>
                     <tfoot class="sticky bottom-0 bg-gray-900 border-t-2 border-cyan-400 font-bold">
-                        <tr><td colspan="6" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalSales.toFixed(2)}</td><td colspan="2"></td></tr>
+                        <tr><td colspan="8" class="py-2 text-right">TOTALS:</td><td class="text-right text-green-400">₱${totalSales.toFixed(2)}</td><td colspan="2"></td></tr>
                     </tfoot>
                 </table>
             </div>
         </div>`;
     }
 
-    window.editTransactionVehicle = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const newVal = prompt("Edit vehicle:", t.vehicle);
-            if(newVal !== null) {
-                t.vehicle = newVal;
-                saveToLocal(); renderApp();
-            }
-        }
-    };
-
-    window.editTransactionPayment = (id) => {
-        const t = appData.transactions.find(tx => tx.id === id);
-        if(t) {
-            const methods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer'];
-            const newVal = prompt("Edit payment method:", t.paymentMethod || 'Cash');
-            if(newVal && methods.includes(newVal)) {
-                t.paymentMethod = newVal;
-                saveToLocal(); renderApp();
-            } else if(newVal) {
-                alert("Payment method must be one of: " + methods.join(', '));
-            }
-        }
-    };
-
-    window.openTransactionEdit = (id) => {
-        // Quick inline edit via modal
-        editTransactionFull(id);
-    };
-
-    window.exportDailyExcel = () => {
-        const today = new Date().toISOString().slice(0,10);
-        const dailyTx = appData.transactions.filter(t => t.date.startsWith(today));
-        const wb = XLSX.utils.book_new();
-        let data = [
-            [`${appData.systemSettings.companyName} - Daily Transactions`],
-            [`Date: ${today}`],
-            ['Receipt', 'Date & Time', 'Customer', 'Vehicle', 'Size', 'Assigned Staff', 'Total', 'Payment Method', 'Remarks']
-        ];
-        dailyTx.forEach(t => {
-            const staffNames = t.items.flatMap(i => i.assignedStaff?.map(s => s.name) || []).filter((v,i,a) => a.indexOf(v)===i).join(', ') || 'Unassigned';
-            const size = t.items.map(i => i.variant).join(', ') || 'N/A';
-            const remarks = t.remarks || '';
-            data.push([t.id, new Date(t.date).toLocaleString(), t.customer, t.vehicle, size, staffNames, t.total, t.paymentMethod, remarks]);
-        });
-        data.push([], ['TOTAL SALES:', '', '', '', '', '', dailyTx.reduce((s,t)=>s+t.total,0)]);
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = data[0].map(() => ({ wch: 18 }));
-        XLSX.utils.book_append_sheet(wb, ws, 'Daily Transactions');
-        XLSX.writeFile(wb, `daily_transactions_${today}.xlsx`);
-        alert('✅ Daily transactions exported to Excel!');
-    };
-
-    window.printDailyTransactions = () => {
-        const printContent = document.querySelector('.card-premium').cloneNode(true);
-        const win = window.open('', '_blank');
-        const logoHtml = appData.systemSettings.companyLogo ? 
-            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
-        win.document.write(`<html><head><title>Daily Transactions</title><style>
-            body{font-family:monospace;padding:20px;background:white;color:black;}
-            .center{text-align:center;}
-            table{width:100%;border-collapse:collapse;font-size:11px;}
-            th,td{border:1px solid #ddd;padding:6px;}
-            th{background:#f0f0f0;}
-            .header{margin-bottom:20px;}
-        </style></head><body>
-            ${logoHtml}
-            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Daily Transactions - ${new Date().toISOString().slice(0,10)}</p></div>
-            ${printContent.innerHTML}
-        </body></html>`);
-        win.document.close();
-        win.print();
-    };
-
-    // ======================== ENHANCED WEEKLY COMMISSION REPORT (WITH CALENDAR DATES) ========================
+    // ======================== ENHANCED WEEKLY COMMISSION REPORT ========================
     function renderWeeklyCommissionReport() {
         if(showLogin) return renderLogin();
         recalculateStaffCommissions();
@@ -591,7 +920,6 @@
         weekEnd.setDate(currentWeekStart.getDate() + 6);
         const weekEndStr = weekEnd.toISOString().slice(0,10);
 
-        // Build date range for the week
         const weekDates = [];
         for (let d = 0; d < 7; d++) {
             const dt = new Date(currentWeekStart);
@@ -638,7 +966,6 @@
             s.part2 = (s.wednesday || 0) + (s.thursday || 0) + (s.friday || 0) + (s.saturday || 0);
         });
 
-        // Build calendar header with dates
         const dayHeaders = weekDates.map(wd => 
             `<th class="text-center py-1 text-cyan-300 text-xs">${wd.dayName.slice(0,3)}<br><span class="text-gray-500 text-[10px]">${wd.dateStr}</span></th>`
         ).join('');
@@ -708,81 +1035,6 @@
             </div>
         </div>`;
     }
-
-    window.exportWeeklyCommissionExcel = () => {
-        const wb = XLSX.utils.book_new();
-        const now = new Date();
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6);
-        
-        let data = [
-            [`${appData.systemSettings.companyName} - Weekly Commission Report`],
-            [`Week: ${weekStart.toISOString().slice(0,10)} to ${weekEnd.toISOString().slice(0,10)}`],
-            [],
-            ['Staff Name', 'Position', 'Tier', 'Jobs', 'Sales', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sun-Tue Total', 'Wed-Sat Total', 'Grand Total']
-        ];
-
-        recalculateStaffCommissions();
-        const weekTx = appData.transactions.filter(t => t.date >= weekStart.toISOString().slice(0,10) && t.date <= weekEnd.toISOString().slice(0,10));
-        const weekStaffMap = {};
-        appData.staff.forEach(s => {
-            weekStaffMap[s.id] = { name: s.name, position: s.position, tier: s.commissionTier, jobs: 0, sales: 0, sunday:0, monday:0, tuesday:0, wednesday:0, thursday:0, friday:0, saturday:0, total:0 };
-        });
-        weekTx.forEach(t => {
-            if (t.staffCommissions) {
-                const txDate = new Date(t.date);
-                const dayName = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][txDate.getDay()].toLowerCase();
-                Object.entries(t.staffCommissions).forEach(([staffId, data]) => {
-                    const s = weekStaffMap[parseInt(staffId)];
-                    if (s) {
-                        const comm = data.commission || 0;
-                        s.jobs += (data.jobs || 1);
-                        s.sales += (t.total || 0);
-                        s.total += comm;
-                        s[dayName] = (s[dayName] || 0) + comm;
-                    }
-                });
-            }
-        });
-
-        Object.values(weekStaffMap).forEach(s => {
-            const part1 = (s.sunday||0)+(s.monday||0)+(s.tuesday||0);
-            const part2 = (s.wednesday||0)+(s.thursday||0)+(s.friday||0)+(s.saturday||0);
-            data.push([s.name, s.position, `${s.tier}%`, s.jobs, s.sales.toFixed(2), 
-                (s.sunday||0).toFixed(2), (s.monday||0).toFixed(2), (s.tuesday||0).toFixed(2),
-                (s.wednesday||0).toFixed(2), (s.thursday||0).toFixed(2), (s.friday||0).toFixed(2), (s.saturday||0).toFixed(2),
-                part1.toFixed(2), part2.toFixed(2), s.total.toFixed(2)]);
-        });
-
-        const ws = XLSX.utils.aoa_to_sheet(data);
-        ws['!cols'] = data[0].map(() => ({ wch: 14 }));
-        XLSX.utils.book_append_sheet(wb, ws, 'Weekly Commission');
-        XLSX.writeFile(wb, `weekly_commission_${weekStart.toISOString().slice(0,10)}.xlsx`);
-        alert('✅ Weekly Commission exported to Excel!');
-    };
-
-    window.printWeeklyCommission = () => {
-        const printContent = document.querySelector('.card-premium').cloneNode(true);
-        const win = window.open('', '_blank');
-        const logoHtml = appData.systemSettings.companyLogo ? 
-            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
-        win.document.write(`<html><head><title>Weekly Commission</title><style>
-            body{font-family:monospace;padding:20px;background:white;color:black;}
-            .center{text-align:center;}
-            table{width:100%;border-collapse:collapse;font-size:10px;}
-            th,td{border:1px solid #ddd;padding:4px;text-align:center;}
-            th{background:#f0f0f0;}
-            .header{margin-bottom:20px;}
-        </style></head><body>
-            ${logoHtml}
-            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Weekly Commission Report</p></div>
-            ${printContent.innerHTML}
-        </body></html>`);
-        win.document.close();
-        win.print();
-    };
 
     // ======================== REPORT SUMMARIES ========================
     function renderReportSummaries() {
@@ -1051,6 +1303,7 @@
         const dailyCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
         const openCount = appData.openServices.filter(s => s.status === 'pending' || s.status === 'in-progress').length;
         const lowStock = appData.inventory.filter(i => i.quantity <= i.reorderLevel).length;
+        const totalCredit = (appData.credits || []).reduce((sum, c) => sum + (c.balance || 0), 0);
 
         const serviceCount = {};
         appData.transactions.forEach(t => { t.items.forEach(item => { serviceCount[item.serviceName] = (serviceCount[item.serviceName] || 0) + item.quantity; }); });
@@ -1094,9 +1347,9 @@
                 <div class="text-xs text-gray-500">${monthTx.length} transactions</div>
             </div>
             <div class="stat-card text-center bg-gray-800 p-3 rounded-lg">
-                <div class="stat-label">Today's Expenses</div>
-                <div class="stat-number text-red-400">₱${dailyExpenses.toFixed(2)}</div>
-                <div class="text-xs text-gray-500">${appData.expenses.filter(e=>e.date===today).length} entries</div>
+                <div class="stat-label">Outstanding Credit</div>
+                <div class="stat-number text-orange-400">₱${totalCredit.toFixed(2)}</div>
+                <div class="text-xs text-gray-500">${(appData.credits || []).filter(c => c.balance > 0).length} accounts</div>
             </div>
             <div class="stat-card text-center bg-gray-800 p-3 rounded-lg">
                 <div class="stat-label">Today's Commission</div>
@@ -1271,7 +1524,6 @@
         service.transactionId = transaction.id;
 
         saveToLocal();
-        // Recalculate to ensure weekly breakdown sync
         recalculateStaffCommissions();
     }
 
@@ -1416,7 +1668,7 @@
         const service = appData.openServices.find(s => s.id === id);
         if(!service) return;
         
-        const paymentMethods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer'];
+        const paymentMethods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)'];
         const methodOptions = paymentMethods.map(m => `<option>${m}</option>`).join('');
         
         let modalHtml = `<div id="paymentModal" class="modal"><div class="modal-content">
@@ -1475,6 +1727,9 @@
             }
         });
 
+        const paymentMethods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)'];
+        const paymentOptions = paymentMethods.map(m => `<option>${m}</option>`).join('');
+
         const cartHtml = posCart.map((item, idx) => `<div class="flex justify-between items-center border-b border-gray-700 py-3"><div class="flex-1"><div class="font-semibold">${item.serviceName} (${item.variant})</div><div class="text-xs text-cyan-400">💰 ${item.assignedStaff?.map(s => `${s.name}: ₱${s.splitCommission.toFixed(2)}`).join(', ') || 'No staff'}</div><div class="text-xs text-gray-400">📝 ${item.remarks || 'None'}</div><div>₱${item.price} × ${item.quantity} = <strong>₱${item.total}</strong></div></div><div><input type="number" min="1" value="${item.quantity}" class="w-16 bg-gray-700 rounded text-sm p-1" onchange="updateCartQuantity(${idx}, this.value)"><div class="mt-2"><i class="fas fa-pen text-yellow-400 cursor-pointer mr-2" onclick="addItemRemark(${idx})"></i><i class="fas fa-users text-cyan-400 cursor-pointer mr-2" onclick="reassignStaff(${idx}, '${item.serviceName}', '${item.variant}')"></i><i class="fas fa-trash text-red-500 cursor-pointer" onclick="removeCartItem(${idx})"></i></div></div></div>`).join('');
         
         return `<div class="grid lg:grid-cols-3 gap-6">
@@ -1496,14 +1751,32 @@
                 <div>Loyalty: <input id="loyaltyUse" value="${loyaltyPointsUsed}" class="w-24 bg-gray-700 rounded"></div>
                 <div class="font-bold text-xl text-cyan-400">Total: ₱${calcTotal()}</div>
                 <select id="paymentMethod" class="bg-gray-800 p-2 w-full rounded my-2">
-                    ${appData.systemSettings.defaultPaymentMethods.map(m => `<option>${m}</option>`).join('')}
+                    ${paymentOptions}
                 </select>
-                <input placeholder="Cash Tendered" id="cashTenderedInput" class="bg-gray-800 p-2 w-full rounded" type="number">
+                <div id="cashInputDiv"><input placeholder="Cash Tendered" id="cashTenderedInput" class="bg-gray-800 p-2 w-full rounded" type="number"></div>
+                <div id="creditInfoDiv" style="display:none;" class="bg-orange-900/30 p-2 rounded my-2 text-sm text-orange-300">
+                    <i class="fas fa-info-circle"></i> Credit (Utang) - Customer will pay later
+                </div>
                 <button onclick="completeSaleWrapper()" class="btn-neon w-full p-3 rounded-xl mt-2">Complete Sale</button>
                 <button onclick="saveAsOpenService()" class="bg-orange-600 w-full p-2 rounded-xl mt-2"><i class="fas fa-clock"></i> Save as Open Service</button>
             </div>
         </div>`;
     }
+
+    // Payment method toggle for Credit
+    document.addEventListener('change', function(e) {
+        if(e.target && e.target.id === 'paymentMethod') {
+            const isCredit = e.target.value === 'Credit (Utang)';
+            const cashDiv = document.getElementById('cashInputDiv');
+            const creditDiv = document.getElementById('creditInfoDiv');
+            if(cashDiv) cashDiv.style.display = isCredit ? 'none' : 'block';
+            if(creditDiv) creditDiv.style.display = isCredit ? 'block' : 'none';
+            if(isCredit) {
+                const tenderedInput = document.getElementById('cashTenderedInput');
+                if(tenderedInput) tenderedInput.value = '0';
+            }
+        }
+    });
 
     window.saveAsOpenService = () => {
         if(posCart.length === 0) { alert("Please add services to cart!"); return; }
@@ -1588,6 +1861,29 @@
     function completeSale() {
         if(posCart.length === 0) { alert("Please add services to cart!"); return; }
         const total = calcTotal();
+        
+        // Handle Credit (Utang)
+        const isCredit = selectedPayment === 'Credit (Utang)';
+        if (isCredit) {
+            if (!selectedCustomer) {
+                alert("Please select a customer for credit transaction!");
+                return;
+            }
+            // Create credit record
+            const creditRecord = {
+                id: 'CR-' + new Date().getFullYear() + '-' + (appData.nextIds.credit++),
+                customerName: selectedCustomer.name,
+                contact: selectedCustomer.mobile || '',
+                transactionId: 'PENDING-' + Date.now(),
+                amount: total,
+                paid: 0,
+                balance: total,
+                date: new Date().toISOString().slice(0,10),
+                status: 'pending'
+            };
+            appData.credits.push(creditRecord);
+        }
+        
         if(selectedPayment === "Cash" && cashTendered < total) { alert("Insufficient cash!"); return; }
         
         const staffCommissionMap = new Map();
@@ -1606,21 +1902,22 @@
             discount, 
             loyaltyUsed: loyaltyPointsUsed, 
             total, 
-            paymentMethod: selectedPayment, 
+            paymentMethod: selectedPayment,
+            isCredit: isCredit,
             cashTendered: selectedPayment === "Cash" ? cashTendered : total, 
             change: selectedPayment === "Cash" ? (cashTendered - total) : 0,
-            remarks: cartRemarks,
+            remarks: cartRemarks + (isCredit ? ' (CREDIT - PENDING)' : ''),
             itemRemarks: posCart.map(i => ({ service: i.serviceName, remark: i.remarks || 'None' }))
         };
         
         appData.transactions.unshift(transaction);
         staffCommissionMap.forEach((data, staffId) => { const staff = appData.staff.find(s => s.id === staffId); if(staff) { staff.totalCommission = (staff.totalCommission || 0) + data.commission; staff.jobsCompleted += data.jobs; staff.salesGenerated += transaction.items.filter(i => i.assignedStaff?.some(s => s.id === staffId)).reduce((sum, i) => sum + i.total, 0); } });
         
-        if(selectedCustomer) { let earnedPoints = Math.floor(total * appData.systemSettings.loyaltyPointsPerPeso); selectedCustomer.loyaltyPoints = (selectedCustomer.loyaltyPoints || 0) + earnedPoints; const idx = appData.customers.findIndex(c=>c.id === selectedCustomer.id); if(idx !== -1) appData.customers[idx].loyaltyPoints = selectedCustomer.loyaltyPoints; }
+        if(selectedCustomer && !isCredit) { let earnedPoints = Math.floor(total * appData.systemSettings.loyaltyPointsPerPeso); selectedCustomer.loyaltyPoints = (selectedCustomer.loyaltyPoints || 0) + earnedPoints; const idx = appData.customers.findIndex(c=>c.id === selectedCustomer.id); if(idx !== -1) appData.customers[idx].loyaltyPoints = selectedCustomer.loyaltyPoints; }
         
         saveToLocal();
         recalculateStaffCommissions();
-        alert(`✅ SALE COMPLETED!\nTotal: ₱${total.toFixed(2)}`);
+        alert(`✅ SALE COMPLETED!\nTotal: ₱${total.toFixed(2)}${isCredit ? '\n⚠️ CREDIT (UTANG) - PENDING PAYMENT' : ''}`);
         print58mmReceipt(transaction);
         posCart = []; selectedCustomer = null; vehicleInfo = { plate: "", model: "", size: "Medium" }; discount = 0; loyaltyPointsUsed = 0; cashTendered = 0; cartRemarks = "";
         renderApp();
@@ -1630,17 +1927,24 @@
     function renderCustomers() {
         if(showLogin) return renderLogin();
         return `<div class="card-premium p-6"><div class="flex justify-between mb-4"><h2 class="text-2xl font-bold">👥 Customer Database</h2><button onclick="addCustomerPopup()" class="bg-green-600 px-3 py-1 rounded">+ Add</button></div>
-            <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full"><thead class="sticky top-0 bg-gray-900 border-b border-cyan-400"><tr><th>Name</th><th>Contact</th><th>Vehicle</th><th>Plate</th><th>Points</th><th>History</th></tr></thead><tbody>
-            ${appData.customers.map(c => `<tr class="border-b border-gray-800"><td class="py-2">${c.name}</td><td>${c.mobile || "—"}</td><td>${c.vehicleInfo || "—"}</td><td>${c.plate || "—"}</td><td>${c.loyaltyPoints}</td><td><button onclick="viewCustomerHistory(${c.id})" class="text-cyan-400 text-sm">View</button></td></tr>`).join('')}</tbody></table></div></div>`;
+            <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full"><thead class="sticky top-0 bg-gray-900 border-b border-cyan-400"><tr><th>Name</th><th>Contact</th><th>Vehicle</th><th>Plate</th><th>Points</th><th>Credit Balance</th><th>History</th></tr></thead><tbody>
+            ${appData.customers.map(c => {
+                const creditBal = (appData.credits || []).filter(cr => cr.customerName === c.name).reduce((sum, cr) => sum + (cr.balance || 0), 0);
+                return `<tr class="border-b border-gray-800"><td class="py-2">${c.name}</td><td>${c.mobile || "—"}</td><td>${c.vehicleInfo || "—"}</td><td>${c.plate || "—"}</td><td>${c.loyaltyPoints}</td><td class="${creditBal > 0 ? 'text-red-400' : 'text-green-400'}">₱${creditBal.toFixed(2)}</td><td><button onclick="viewCustomerHistory(${c.id})" class="text-cyan-400 text-sm">View</button></td></tr>`;
+            }).join('')}</tbody></table></div></div>`;
     }
 
     window.viewCustomerHistory = (id) => {
         const tx = appData.transactions.filter(t => t.customerId === id);
-        alert(`Customer has ${tx.length} transaction(s). Total spent: ₱${tx.reduce((s,t)=>s+t.total,0).toFixed(2)}`);
+        const credits = appData.credits.filter(c => {
+            const cust = appData.customers.find(cu => cu.id === id);
+            return cust && c.customerName === cust.name;
+        });
+        alert(`Customer has ${tx.length} transaction(s). Total spent: ₱${tx.reduce((s,t)=>s+t.total,0).toFixed(2)}\nCredit Balance: ₱${credits.reduce((sum, c) => sum + (c.balance || 0), 0).toFixed(2)}`);
     };
 
     window.addCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { appData.customers.push({ id: Date.now(), name, mobile: "", loyaltyPoints: 0 }); saveToLocal(); renderApp(); } };
-    window.selectCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { let existing = appData.customers.find(c=>c.name.toLowerCase()===name.toLowerCase()); if(existing) selectedCustomer = existing; else { let newCust = { id: Date.now(), name, loyaltyPoints:0 }; appData.customers.push(newCust); selectedCustomer = newCust; } renderApp(); } };
+    window.selectCustomerPopup = () => { let name = prompt("Customer name:"); if(name) { let existing = appData.customers.find(c=>c.name.toLowerCase()===name.toLowerCase()); if(existing) selectedCustomer = existing; else { let newCust = { id: Date.now(), name, loyaltyPoints:0, mobile: "" }; appData.customers.push(newCust); selectedCustomer = newCust; } renderApp(); } };
 
     // ======================== STAFF FUNCTIONS ========================
     function renderStaffDashboard() {
@@ -1829,9 +2133,11 @@
         
         const adminPanels = [
             { id: 'dailytransactions', icon: 'fa-calendar-day', label: 'Daily Transactions' },
+            { id: 'transactiontracking', icon: 'fa-exchange-alt', label: 'Transaction Tracking' },
             { id: 'reports', icon: 'fa-chart-pie', label: 'Report Summaries' },
             { id: 'dashboard', icon: 'fa-tachometer-alt', label: 'Dashboard' },
             { id: 'weeklycommission', icon: 'fa-calendar-week', label: 'Weekly Commission' },
+            { id: 'credit', icon: 'fa-hand-holding-usd', label: 'Credit (Utang)' },
             { id: 'services', icon: 'fa-concierge-bell', label: 'Services' },
             { id: 'categories', icon: 'fa-tags', label: 'Categories' },
             { id: 'staff', icon: 'fa-users', label: 'Staff' },
@@ -1845,9 +2151,11 @@
         
         let content = '';
         if(currentAdminPanel === 'dailytransactions') content = renderDailyTransactionManagement();
+        else if(currentAdminPanel === 'transactiontracking') content = renderTransactionTracking();
         else if(currentAdminPanel === 'reports') content = renderReportSummaries();
         else if(currentAdminPanel === 'dashboard') content = renderDashboard();
         else if(currentAdminPanel === 'weeklycommission') content = renderWeeklyCommissionReport();
+        else if(currentAdminPanel === 'credit') content = renderCreditManagement();
         else if(currentAdminPanel === 'services') content = renderAdminServices();
         else if(currentAdminPanel === 'categories') content = renderAdminCategories();
         else if(currentAdminPanel === 'staff') content = renderStaffDashboard();
@@ -1869,18 +2177,15 @@
                         <div>Open: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
                         <div>Staff: ${appData.staff.length}</div>
                         <div>TX: ${appData.transactions.length}</div>
+                        <div>Credit: ${(appData.credits || []).filter(c=>c.balance>0).length}</div>
+                        <div>v8.3</div>
                     </div>
                     <div class="mt-2 text-cyan-400 text-[10px]">Last Saved: ${new Date().toLocaleTimeString()}</div>
-                    <div class="mt-1 text-green-400 text-[10px]">📊 v8.2 - Daily TX + Auto-Commission Sync</div>
+                    <div class="mt-1 text-green-400 text-[10px]">📊 Credit (Utang) + Transaction Tracking</div>
                 </div>
             </div>
             <div class="admin-content card-premium p-5">${content}</div>
         </div>`;
-    }
-
-    // ======================== ADMIN - TRANSACTIONS (LEGACY SUPPORT) ========================
-    function renderAdminTransactions() {
-        return renderDailyTransactionManagement();
     }
 
     // ======================== ADMIN - SERVICES ========================
@@ -2311,13 +2616,14 @@
             </div>
             <div class="mt-4 p-3 bg-gray-800 rounded-lg text-xs">
                 <div class="text-gray-400">System Info</div>
-                <div>Version: 8.2 Enterprise | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
+                <div>Version: 8.3 Enterprise | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
                 <div>Records: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff</div>
+                <div>Credit Records: ${(appData.credits || []).length} | Outstanding: ₱${(appData.credits || []).reduce((sum, c) => sum + (c.balance || 0), 0).toFixed(2)}</div>
                 <div>Commission Entries: ${Object.keys(appData.commissionMatrix || {}).length}</div>
                 <div>Open Services: ${appData.openServices.filter(s=>s.status!=='completed').length}</div>
                 <div>Receipt: 58mm Thermal with Auto-Cut</div>
-                <div class="mt-1 text-green-400">📊 Daily Transaction Management + Auto-Commission Sync</div>
-                <div class="mt-1 text-cyan-400">📅 Weekly Commission with Calendar Dates</div>
+                <div class="mt-1 text-green-400">📊 Credit (Utang) Management + Transaction Tracking</div>
+                <div class="mt-1 text-cyan-400">📅 Daily/Weekly/Monthly/Yearly Reports with Calendar</div>
             </div>
         </div>`;
     }
@@ -2396,6 +2702,229 @@
     window.navigateAdmin = (panel) => { currentAdminPanel = panel; renderApp(); };
     window.closePaymentModal = () => document.getElementById('paymentModal')?.remove();
 
+    // ======================== TRANSACTION EDIT FUNCTIONS ========================
+    window.editTransactionCustomer = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newName = prompt("Edit customer:", t.customer);
+            if(newName !== null) {
+                t.customer = newName;
+                saveToLocal(); renderApp();
+                alert("✅ Customer updated!");
+            }
+        }
+    };
+    window.editTransactionVehicle = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newVal = prompt("Edit vehicle:", t.vehicle);
+            if(newVal !== null) {
+                t.vehicle = newVal;
+                saveToLocal(); renderApp();
+            }
+        }
+    };
+    window.editTransactionAmount = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const newAmt = parseFloat(prompt("Edit amount:", t.total));
+            if(!isNaN(newAmt) && newAmt > 0) {
+                t.total = newAmt;
+                t.subtotal = newAmt;
+                saveToLocal(); recalculateStaffCommissions(); renderApp();
+                alert("✅ Amount updated! Commissions recalculated.");
+            }
+        }
+    };
+    window.editTransactionPayment = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) {
+            const methods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)'];
+            const newVal = prompt("Edit payment method:", t.paymentMethod || 'Cash');
+            if(newVal && methods.includes(newVal)) {
+                t.paymentMethod = newVal;
+                if(newVal === 'Credit (Utang)') {
+                    t.isCredit = true;
+                    // Create credit record if not exists
+                    if(!appData.credits.some(c => c.transactionId === t.id)) {
+                        appData.credits.push({
+                            id: 'CR-' + new Date().getFullYear() + '-' + (appData.nextIds.credit++),
+                            customerName: t.customer,
+                            contact: '',
+                            transactionId: t.id,
+                            amount: t.total,
+                            paid: 0,
+                            balance: t.total,
+                            date: new Date(t.date).toISOString().slice(0,10),
+                            status: 'pending'
+                        });
+                    }
+                }
+                saveToLocal(); renderApp();
+            } else if(newVal) {
+                alert("Payment method must be one of: " + methods.join(', '));
+            }
+        }
+    };
+    window.openTransactionEdit = (id) => {
+        editTransactionFull(id);
+    };
+    window.editTransactionFull = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(!t) return;
+        
+        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Edit Transaction</h3>
+            <div class="space-y-3">
+                <div><label class="text-gray-400">Customer</label><input type="text" id="editTxCustomer" class="w-full bg-gray-800 p-2 rounded" value="${t.customer}"></div>
+                <div><label class="text-gray-400">Amount</label><input type="number" id="editTxAmount" class="w-full bg-gray-800 p-2 rounded" value="${t.total}" step="0.01"></div>
+                <div><label class="text-gray-400">Vehicle</label><input type="text" id="editTxVehicle" class="w-full bg-gray-800 p-2 rounded" value="${t.vehicle}"></div>
+                <div><label class="text-gray-400">Plate</label><input type="text" id="editTxPlate" class="w-full bg-gray-800 p-2 rounded" value="${t.plate}"></div>
+                <div><label class="text-gray-400">Payment</label><select id="editTxPayment" class="w-full bg-gray-800 p-2 rounded">
+                    ${appData.systemSettings.defaultPaymentMethods.map(m => `<option ${t.paymentMethod===m?"selected":""}>${m}</option>`).join('')}
+                </select></div>
+                <div><label class="text-gray-400">Remarks</label><input type="text" id="editTxRemarks" class="w-full bg-gray-800 p-2 rounded" value="${t.remarks || ''}"></div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="confirmEditTransaction('${id}')" class="btn-neon flex-1 p-2 rounded">Update</button>
+                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
+                </div>
+            </div>
+        </div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+    window.confirmEditTransaction = (id) => {
+        const customer = document.getElementById('editTxCustomer')?.value;
+        const amount = parseFloat(document.getElementById('editTxAmount')?.value);
+        const vehicle = document.getElementById('editTxVehicle')?.value;
+        const plate = document.getElementById('editTxPlate')?.value;
+        const payment = document.getElementById('editTxPayment')?.value;
+        const remarks = document.getElementById('editTxRemarks')?.value;
+        
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(!t) return;
+        
+        if(customer) t.customer = customer;
+        if(!isNaN(amount) && amount > 0) { t.total = amount; t.subtotal = amount; }
+        if(vehicle) t.vehicle = vehicle;
+        if(plate) t.plate = plate;
+        if(payment) {
+            const oldPayment = t.paymentMethod;
+            t.paymentMethod = payment;
+            if(payment === 'Credit (Utang)' && oldPayment !== 'Credit (Utang)') {
+                t.isCredit = true;
+                if(!appData.credits.some(c => c.transactionId === t.id)) {
+                    appData.credits.push({
+                        id: 'CR-' + new Date().getFullYear() + '-' + (appData.nextIds.credit++),
+                        customerName: t.customer,
+                        contact: '',
+                        transactionId: t.id,
+                        amount: t.total,
+                        paid: 0,
+                        balance: t.total,
+                        date: new Date(t.date).toISOString().slice(0,10),
+                        status: 'pending'
+                    });
+                }
+            }
+        }
+        if(remarks !== undefined) t.remarks = remarks;
+        
+        saveToLocal();
+        recalculateStaffCommissions();
+        closeAdminModal();
+        alert("✅ Transaction updated! Commissions recalculated.");
+        renderApp();
+    };
+    window.deleteTransactionAndCommission = (id) => {
+        if (!confirm("Delete this transaction? This will remove associated commissions.")) return;
+
+        const txIndex = appData.transactions.findIndex(t => t.id === id);
+        if (txIndex === -1) return;
+
+        // Also remove credit record
+        appData.credits = appData.credits.filter(c => c.transactionId !== id);
+
+        appData.transactions.splice(txIndex, 1);
+        recalculateStaffCommissions();
+        saveToLocal();
+        renderApp();
+        alert("✅ Transaction deleted and commissions updated!");
+    };
+    window.printReceiptFromTransaction = (id) => {
+        const t = appData.transactions.find(tx => tx.id === id);
+        if(t) print58mmReceipt(t);
+    };
+    window.showAddTransactionModal = () => {
+        const paymentMethods = appData.systemSettings.defaultPaymentMethods || ['Cash', 'GCash', 'Maya', 'Credit Card', 'Bank Transfer', 'Credit (Utang)'];
+        const methodOptions = paymentMethods.map(m => `<option>${m}</option>`).join('');
+        let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
+            <h3 class="text-xl font-bold mb-4">Add Manual Transaction</h3>
+            <div class="space-y-3">
+                <div><label class="text-gray-400">Customer</label><input type="text" id="txCustomerInput" class="w-full bg-gray-800 p-2 rounded" value="Walk-in Customer"></div>
+                <div><label class="text-gray-400">Amount</label><input type="number" id="txAmountInput" class="w-full bg-gray-800 p-2 rounded" step="0.01"></div>
+                <div><label class="text-gray-400">Vehicle</label><input type="text" id="txVehicleInput" class="w-full bg-gray-800 p-2 rounded" placeholder="Toyota Vios"></div>
+                <div><label class="text-gray-400">Plate</label><input type="text" id="txPlateInput" class="w-full bg-gray-800 p-2 rounded"></div>
+                <div><label class="text-gray-400">Payment</label><select id="txPaymentInput" class="w-full bg-gray-800 p-2 rounded">${methodOptions}</select></div>
+                <div><label class="text-gray-400">Remarks</label><input type="text" id="txRemarksInput" class="w-full bg-gray-800 p-2 rounded"></div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="confirmAddTransaction()" class="btn-neon flex-1 p-2 rounded">Add</button>
+                    <button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button>
+                </div>
+            </div>
+        </div></div>`;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+    window.confirmAddTransaction = () => {
+        const customer = document.getElementById('txCustomerInput')?.value || "Walk-in Customer";
+        const amount = parseFloat(document.getElementById('txAmountInput')?.value);
+        const vehicle = document.getElementById('txVehicleInput')?.value || "N/A";
+        const plate = document.getElementById('txPlateInput')?.value || "N/A";
+        const payment = document.getElementById('txPaymentInput')?.value || "Cash";
+        const remarks = document.getElementById('txRemarksInput')?.value || "";
+        
+        if(isNaN(amount) || amount <= 0) { alert("Valid amount required!"); return; }
+        
+        const transaction = {
+            id: generateReceiptNo(),
+            date: new Date().toISOString(),
+            customer: customer,
+            vehicle: vehicle,
+            plate: plate,
+            items: [{ serviceName: "Manual Entry", variant: "Standard", price: amount, quantity: 1, total: amount, assignedStaff: [], remarks: "Manual transaction" }],
+            subtotal: amount,
+            discount: 0,
+            loyaltyUsed: 0,
+            total: amount,
+            paymentMethod: payment,
+            isCredit: payment === 'Credit (Utang)',
+            cashTendered: payment === 'Cash' ? amount : 0,
+            change: 0,
+            remarks: remarks + (payment === 'Credit (Utang)' ? ' (CREDIT - PENDING)' : '')
+        };
+        
+        appData.transactions.unshift(transaction);
+        
+        if (payment === 'Credit (Utang)') {
+            appData.credits.push({
+                id: 'CR-' + new Date().getFullYear() + '-' + (appData.nextIds.credit++),
+                customerName: customer,
+                contact: '',
+                transactionId: transaction.id,
+                amount: amount,
+                paid: 0,
+                balance: amount,
+                date: new Date().toISOString().slice(0,10),
+                status: 'pending'
+            });
+        }
+        
+        saveToLocal();
+        recalculateStaffCommissions();
+        closeAdminModal();
+        renderApp();
+        alert("✅ Transaction added!");
+    };
+
     // ======================== MAIN RENDER ========================
     function renderApp() {
         if(showLogin) {
@@ -2439,7 +2968,7 @@
             <div class="flex flex-wrap justify-between items-center border-b border-blue-800 pb-4 mb-6">
                 <div class="flex items-center gap-3">
                     ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="company-logo" alt="Logo">` : ''}
-                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.2</p></div>
+                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.3</p></div>
                 </div>
                 <div class="flex gap-2 flex-wrap mt-2">
                     <button onclick="navigate('dashboard')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-line"></i> Dashboard</button>
@@ -2452,15 +2981,15 @@
                 </div>
             </div>
             <div id="mainContent"></div>
-            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | v8.2</footer>
+            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | 58mm Receipt | Auto-Cut | v8.3</footer>
         </div>
     `;
     renderApp();
     saveToLocal();
 
-    console.log('%c8068 CAR SQUARE - Enterprise Management System v8.2', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
+    console.log('%c8068 CAR SQUARE - Enterprise Management System v8.3', 'color: #00d4ff; font-size: 20px; font-weight: bold;');
     console.log(`%cRecords: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff`, 'color: #00ff88;');
-    console.log('%c📊 Daily Transaction Management | Auto-Commission Sync | Calendar-Based Weekly Reports', 'color: #ffaa00;');
+    console.log('%c📊 Credit (Utang) Management | Transaction Tracking | Auto-Commission Sync', 'color: #ffaa00;');
 </script>
 </body>
 </html>
