@@ -6,7 +6,7 @@
     <title>8068 CAR SQUARE | POS System v8.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -94,6 +94,217 @@
         .pagination-btn.active { background: #00d4ff; color: black; border-color: #00d4ff; }
         .receipt-settings { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px; }
         .receipt-settings select { background: #0a0a0a; border: 1px solid #444; border-radius: 4px; color: white; padding: 4px 8px; }
+        
+        /* ===== COMPACT HEADER STYLES ===== */
+        .main-header {
+            background: #0a0a0a;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+            padding: 6px 20px;
+            min-height: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex-shrink: 0;
+        }
+        .logo-icon {
+            width: 72px;
+            height: 72px;
+            flex-shrink: 0;
+        }
+        .logo-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1.15;
+        }
+        .company-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 0.5px;
+        }
+        .company-subtitle {
+            font-size: 12px;
+            color: #00d4ff;
+            font-weight: 400;
+            letter-spacing: 0.3px;
+        }
+        .company-version {
+            font-size: 10px;
+            color: #888;
+            font-weight: 300;
+            margin-left: 6px;
+        }
+        .header-nav {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .header-nav .nav-btn {
+            background: transparent;
+            border: 1px solid rgba(0, 212, 255, 0.15);
+            color: #aaa;
+            padding: 5px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .header-nav .nav-btn:hover {
+            border-color: #00d4ff;
+            color: #fff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+        .header-nav .nav-btn.active {
+            border-color: #00d4ff;
+            color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
+        }
+        .header-user {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: #888;
+        }
+        .header-user .user-name {
+            color: #00d4ff;
+        }
+        .header-user .logout-btn {
+            color: #ff6b6b;
+            cursor: pointer;
+            font-size: 12px;
+            transition: color 0.2s;
+        }
+        .header-user .logout-btn:hover {
+            color: #ff4444;
+        }
+
+        /* Mobile nav toggle */
+        .mobile-nav-toggle {
+            display: none;
+            background: transparent;
+            border: none;
+            color: #00d4ff;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 4px 8px;
+        }
+        .mobile-nav {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px 0 4px 0;
+            width: 100%;
+            border-top: 1px solid rgba(0, 212, 255, 0.1);
+        }
+        .mobile-nav .nav-btn {
+            background: transparent;
+            border: 1px solid rgba(0, 212, 255, 0.1);
+            color: #aaa;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            cursor: pointer;
+            text-align: left;
+            width: 100%;
+        }
+        .mobile-nav .nav-btn:hover {
+            border-color: #00d4ff;
+            color: #fff;
+            background: rgba(0, 212, 255, 0.05);
+        }
+        .mobile-nav .nav-btn.active {
+            border-color: #00d4ff;
+            color: #00d4ff;
+            background: rgba(0, 212, 255, 0.1);
+        }
+
+        @media (max-width: 768px) {
+            .main-header {
+                padding: 4px 12px;
+                min-height: 54px;
+            }
+            .logo-icon {
+                width: 48px;
+                height: 48px;
+            }
+            .company-title {
+                font-size: 16px;
+            }
+            .company-subtitle {
+                font-size: 10px;
+            }
+            .company-version {
+                font-size: 8px;
+            }
+            .header-nav {
+                display: none;
+            }
+            .mobile-nav-toggle {
+                display: block;
+            }
+            .mobile-nav.open {
+                display: flex;
+            }
+            .header-user .user-name {
+                font-size: 10px;
+            }
+            .header-user .logout-btn {
+                font-size: 10px;
+            }
+        }
+        @media (max-width: 480px) {
+            .logo-icon {
+                width: 40px;
+                height: 40px;
+            }
+            .company-title {
+                font-size: 14px;
+            }
+            .company-subtitle {
+                font-size: 9px;
+            }
+            .company-version {
+                font-size: 7px;
+            }
+            .main-header {
+                padding: 3px 8px;
+                min-height: 46px;
+            }
+        }
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .main-header {
+                padding: 5px 16px;
+                min-height: 58px;
+            }
+            .logo-icon {
+                width: 56px;
+                height: 56px;
+            }
+            .company-title {
+                font-size: 18px;
+            }
+            .header-nav .nav-btn {
+                padding: 4px 10px;
+                font-size: 11px;
+            }
+        }
         @media print {
             .no-print { display: none; }
             .receipt-58mm { width: 58mm; margin: 0; padding: 4px; }
@@ -295,6 +506,7 @@
     let searchQuery = '';
     let dateRangeStart = '';
     let dateRangeEnd = '';
+    let mobileNavOpen = false;
 
     function generateReceiptNo() { return "INV-" + new Date().getFullYear() + "-" + (appData.nextIds.transaction++); }
 
@@ -381,7 +593,6 @@
         data.forEach(row => {
             wsData.push(columns.map(c => row[c.key] !== undefined ? row[c.key] : ''));
         });
-        // Add totals if needed
         const ws = XLSX.utils.aoa_to_sheet(wsData);
         ws['!cols'] = columns.map(() => ({ wch: 20 }));
         ws['!rows'] = [{ hpx: 30 }];
@@ -408,7 +619,6 @@
         const doc = new jsPDF('landscape', 'mm', 'a4');
         const pageWidth = doc.internal.pageSize.getWidth();
         
-        // Add logo if exists
         if (logo) {
             try {
                 doc.addImage(logo, 'JPEG', pageWidth/2 - 20, 5, 40, 20);
@@ -823,7 +1033,6 @@
         const today = new Date().toISOString().slice(0,10);
         let dailyTx = appData.transactions.filter(t => t.date.startsWith(today));
         
-        // Search filter
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
             dailyTx = dailyTx.filter(t => 
@@ -834,14 +1043,12 @@
             );
         }
         
-        // Date range filter
         if (dateRangeStart && dateRangeEnd) {
             dailyTx = dailyTx.filter(t => t.date >= dateRangeStart && t.date <= dateRangeEnd);
         }
         
         dailyTx.sort((a, b) => new Date(b.date) - new Date(a.date));
         
-        // Pagination
         const totalPages = Math.ceil(dailyTx.length / pageSize);
         const startIdx = (currentPage - 1) * pageSize;
         const paginatedTx = dailyTx.slice(startIdx, startIdx + pageSize);
@@ -851,7 +1058,6 @@
             const size = t.items.map(i => i.variant).join(', ') || 'N/A';
             const serviceAvailed = t.items.map(i => i.serviceName).join(', ') || 'N/A';
             const isCredit = t.paymentMethod === 'Credit (Utang)' || t.isCredit;
-            // Calculate staff commission for this transaction
             let txCommission = 0;
             if (t.staffCommissions) {
                 txCommission = Object.values(t.staffCommissions).reduce((sum, st) => sum + (st.commission || 0), 0);
@@ -883,7 +1089,6 @@
         const creditTx = dailyTx.filter(t => t.paymentMethod === 'Credit (Utang)' || t.isCredit);
         const totalCredit = creditTx.reduce((s,t)=>s+t.total,0);
 
-        // Pagination controls
         let paginationHtml = '';
         if (totalPages > 1) {
             paginationHtml = `<div class="flex gap-1 mt-2 flex-wrap">
@@ -1643,6 +1848,28 @@
             { key: 'total', header: 'Grand Total' }
         ];
         generateCSV(data, columns, 'weekly_commission');
+    };
+
+    window.printWeeklyCommission = function() {
+        const printContent = document.querySelector('.card-premium').cloneNode(true);
+        const win = window.open('', '_blank');
+        const logoHtml = appData.systemSettings.companyLogo ? 
+            `<div class="center"><img src="${appData.systemSettings.companyLogo}" style="max-width:100px;max-height:70px;object-fit:contain;"></div>` : '';
+        win.document.write(`<html><head><title>Weekly Commission</title><style>
+            body{font-family:monospace;padding:20px;background:white;color:black;}
+            .center{text-align:center;}
+            table{width:100%;border-collapse:collapse;font-size:10px;}
+            th,td{border:1px solid #ddd;padding:4px;text-align:center;}
+            th{background:#f0f0f0;}
+            .header{margin-bottom:20px;}
+            .no-print{display:none;}
+        </style></head><body>
+            ${logoHtml}
+            <div class="header"><h2>${appData.systemSettings.companyName}</h2><p>Weekly Commission Report</p></div>
+            ${printContent.innerHTML}
+        </body></html>`);
+        win.document.close();
+        win.print();
     };
 
     // ======================== CREDIT MANAGEMENT ========================
@@ -2566,9 +2793,9 @@
     function renderAdminDashboard() {
         if(showLogin) return renderLogin();
         if(!hasRole(['Owner', 'Manager'])) {
-            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Manager or Owner role required.</p></div>`;
+            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Manager or Owner required.</p></div>`;
         }
-        
+
         const adminPanels = [
             { id: 'dailytransactions', icon: 'fa-calendar-day', label: 'Daily Transactions' },
             { id: 'transactiontracking', icon: 'fa-exchange-alt', label: 'Transaction Tracking' },
@@ -2586,7 +2813,7 @@
             { id: 'users', icon: 'fa-user-shield', label: 'Users' },
             { id: 'system', icon: 'fa-cogs', label: 'System Settings' }
         ];
-        
+
         let content = '';
         if(currentAdminPanel === 'dailytransactions') content = renderDailyTransactionManagement();
         else if(currentAdminPanel === 'transactiontracking') content = renderTransactionTracking();
@@ -2603,7 +2830,7 @@
         else if(currentAdminPanel === 'commissions') content = renderAdminCommissions();
         else if(currentAdminPanel === 'users') content = renderAdminUsers();
         else if(currentAdminPanel === 'system') content = renderAdminSystem();
-        
+
         return `<div class="admin-grid">
             <div class="admin-sidebar">
                 <h3 class="text-lg font-bold mb-4 neon-glow p-2 rounded text-center"><i class="fas fa-crown"></i> Admin Panel</h3>
@@ -3378,7 +3605,7 @@
     function renderInventory() {
         if(showLogin) return renderLogin();
         if(!hasRole(['Owner', 'Manager'])) {
-            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Manager or Owner role required.</p></div>`;
+            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Manager or Owner required.</p></div>`;
         }
         return `<div class="card-premium p-6"><div class="flex justify-between mb-4"><h2 class="text-2xl font-bold">📦 Inventory Management</h2><button onclick="addInventoryItem()" class="bg-green-600 px-3 py-1 rounded">+ Add Item</button></div>
             <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-sm"><thead class="sticky top-0 bg-gray-900 border-b border-cyan-400"><tr><th>Item</th><th>Category</th><th>Quantity</th><th>Unit</th><th>Reorder Level</th><th>Status</th><th>Actions</th></tr></thead><tbody>
@@ -3813,7 +4040,11 @@
         saveToLocal();
     }
 
-    window.navigate = (view) => { currentView = view; renderApp(); };
+    window.navigate = (view) => { 
+        currentView = view; 
+        mobileNavOpen = false;
+        renderApp(); 
+    };
 
     // ======================== LIVE CLOCK ========================
     function updateClock() {
@@ -3825,25 +4056,65 @@
     setInterval(updateClock, 1000);
 
     // ======================== UI ========================
+    function toggleMobileNav() {
+        mobileNavOpen = !mobileNavOpen;
+        const nav = document.getElementById('mobileNav');
+        if(nav) nav.classList.toggle('open');
+    }
+
     document.body.innerHTML = `
-        <div class="max-w-screen-2xl mx-auto px-4 py-5">
-            <div class="flex flex-wrap justify-between items-center border-b border-blue-800 pb-4 mb-6">
-                <div class="flex items-center gap-3">
-                    ${appData.systemSettings.companyLogo ? `<img src="${appData.systemSettings.companyLogo}" class="company-logo" alt="Logo">` : ''}
-                    <div><h1 class="text-3xl font-extrabold glow-text">${appData.systemSettings.companyName}</h1><p class="text-sm text-gray-400">${appData.systemSettings.tagline} | v8.4</p></div>
+        <div class="max-w-screen-2xl mx-auto px-4 py-3">
+            <!-- ===== COMPACT HEADER ===== -->
+            <header class="main-header">
+                <div class="logo-container">
+                    <!-- CS Monogram Logo -->
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="5" y="5" width="90" height="90" rx="15" stroke="#00d4ff" stroke-width="3" fill="#0a0a0a"/>
+                            <circle cx="50" cy="50" r="35" stroke="#00d4ff" stroke-width="2" fill="none"/>
+                            <text x="50" y="58" font-family="Inter, sans-serif" font-size="38" font-weight="700" fill="#00d4ff" text-anchor="middle" dominant-baseline="central">CS</text>
+                            <circle cx="50" cy="50" r="42" stroke="rgba(0,212,255,0.2)" stroke-width="1" stroke-dasharray="4 4" fill="none"/>
+                        </svg>
+                    </div>
+                    <div class="brand-text">
+                        <span class="company-title">8068 CAR SQUARE</span>
+                        <span class="company-subtitle">One Stop Shop <span class="company-version">| v8.4</span></span>
+                    </div>
                 </div>
-                <div class="flex gap-2 flex-wrap mt-2">
-                    <button onclick="navigate('dashboard')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-line"></i> Dashboard</button>
-                    <button onclick="navigate('pos')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-cash-register"></i> POS</button>
-                    <button onclick="navigate('openservices')" class="px-3 py-2 bg-orange-900 rounded-lg neon-border text-sm"><i class="fas fa-clipboard-list"></i> Open Services</button>
-                    <button onclick="navigate('staff')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-id-badge"></i> Staff</button>
-                    <button onclick="navigate('customers')" class="px-3 py-2 bg-gray-900 rounded-lg neon-border text-sm"><i class="fas fa-users"></i> Customers</button>
-                    <button onclick="navigate('admin')" class="px-3 py-2 bg-purple-900 rounded-lg neon-border text-sm"><i class="fas fa-crown"></i> Admin</button>
-                    <button onclick="navigate('reports')" class="px-3 py-2 bg-green-900 rounded-lg neon-border text-sm"><i class="fas fa-chart-bar"></i> Reports</button>
+
+                <!-- Desktop Navigation -->
+                <div class="header-nav" id="desktopNav">
+                    <button class="nav-btn ${currentView === 'dashboard' ? 'active' : ''}" onclick="navigate('dashboard')"><i class="fas fa-chart-line"></i> Dashboard</button>
+                    <button class="nav-btn ${currentView === 'pos' ? 'active' : ''}" onclick="navigate('pos')"><i class="fas fa-cash-register"></i> POS</button>
+                    <button class="nav-btn ${currentView === 'openservices' ? 'active' : ''}" onclick="navigate('openservices')"><i class="fas fa-clipboard-list"></i> Open</button>
+                    <button class="nav-btn ${currentView === 'staff' ? 'active' : ''}" onclick="navigate('staff')"><i class="fas fa-id-badge"></i> Staff</button>
+                    <button class="nav-btn ${currentView === 'customers' ? 'active' : ''}" onclick="navigate('customers')"><i class="fas fa-users"></i> Customers</button>
+                    <button class="nav-btn ${currentView === 'admin' ? 'active' : ''}" onclick="navigate('admin')"><i class="fas fa-crown"></i> Admin</button>
+                    <button class="nav-btn ${currentView === 'reports' ? 'active' : ''}" onclick="navigate('reports')"><i class="fas fa-chart-bar"></i> Reports</button>
                 </div>
+
+                <div class="header-user">
+                    <span class="user-name"><i class="fas fa-user-circle"></i> ${appData.currentUser?.name || 'Guest'}</span>
+                    <span class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</span>
+                    <button class="mobile-nav-toggle" onclick="toggleMobileNav()"><i class="fas fa-bars"></i></button>
+                </div>
+            </header>
+
+            <!-- Mobile Navigation -->
+            <div class="mobile-nav" id="mobileNav">
+                <button class="nav-btn ${currentView === 'dashboard' ? 'active' : ''}" onclick="navigate('dashboard')"><i class="fas fa-chart-line"></i> Dashboard</button>
+                <button class="nav-btn ${currentView === 'pos' ? 'active' : ''}" onclick="navigate('pos')"><i class="fas fa-cash-register"></i> POS</button>
+                <button class="nav-btn ${currentView === 'openservices' ? 'active' : ''}" onclick="navigate('openservices')"><i class="fas fa-clipboard-list"></i> Open Services</button>
+                <button class="nav-btn ${currentView === 'staff' ? 'active' : ''}" onclick="navigate('staff')"><i class="fas fa-id-badge"></i> Staff</button>
+                <button class="nav-btn ${currentView === 'customers' ? 'active' : ''}" onclick="navigate('customers')"><i class="fas fa-users"></i> Customers</button>
+                <button class="nav-btn ${currentView === 'admin' ? 'active' : ''}" onclick="navigate('admin')"><i class="fas fa-crown"></i> Admin</button>
+                <button class="nav-btn ${currentView === 'reports' ? 'active' : ''}" onclick="navigate('reports')"><i class="fas fa-chart-bar"></i> Reports</button>
             </div>
-            <div id="mainContent"></div>
-            <footer class="text-center text-gray-500 text-sm mt-12 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | v8.4 Stable | All Export & Print Functions Working</footer>
+
+            <!-- Main Content -->
+            <div id="mainContent" class="mt-2"></div>
+
+            <footer class="text-center text-gray-500 text-sm mt-8 pt-4 border-t border-gray-800">${appData.systemSettings.companyName} | v8.4 Stable | All Export & Print Functions Working</footer>
         </div>
     `;
     renderApp();
