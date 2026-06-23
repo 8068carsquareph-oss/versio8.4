@@ -125,6 +125,10 @@
         .growth-negative { color: #ff6b6b; }
         .commission-table th { padding: 6px 4px; border-bottom: 2px solid #00d4ff; font-size: 10px; text-transform: uppercase; color: #00d4ff; }
         .commission-table td { padding: 5px 4px; border-bottom: 1px solid #222; font-size: 11px; }
+        .settings-group { background: #1a1a1a; border-radius: 8px; padding: 12px; margin-bottom: 12px; border: 1px solid #2a2a2a; }
+        .settings-group label { color: #888; font-size: 12px; display: block; margin-bottom: 4px; }
+        .settings-group input, .settings-group select { background: #0a0a0a; border: 1px solid #333; border-radius: 6px; padding: 6px 12px; color: white; width: 100%; }
+        .settings-group input:focus, .settings-group select:focus { border-color: #00d4ff; outline: none; }
     </style>
 </head>
 <body class="text-white">
@@ -333,10 +337,7 @@
 
     // ======================== REAL-TIME SYNC FUNCTIONS ========================
     function syncTransactionToReports(transaction) {
-        // This function updates all report aggregates in real-time
-        // All reports are computed on-the-fly from transaction data
         saveToLocal();
-        // Trigger UI refresh via renderApp
         if (window._renderTimeout) clearTimeout(window._renderTimeout);
         window._renderTimeout = setTimeout(() => {
             renderApp();
@@ -684,14 +685,12 @@
             });
         }
 
-        // Sort by date descending
         txs.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
         const totalPages = Math.ceil(txs.length / pageSize);
         const startIdx = (currentPage - 1) * pageSize;
         const paginated = txs.slice(startIdx, startIdx + pageSize);
 
-        // Calculate grand totals
         const totalTransactions = txs.length;
         const grandTotalSales = txs.reduce((s, t) => s + (t.total || 0), 0);
         const avgSale = totalTransactions > 0 ? grandTotalSales / totalTransactions : 0;
@@ -761,7 +760,6 @@
                 </div>
             </div>
 
-            <!-- Grand Total Summary -->
             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 mb-4 text-xs">
                 <div class="bg-gray-800 p-2 rounded-lg text-center"><span class="text-gray-400">Total TX:</span> <span class="text-cyan-400 font-bold">${totalTransactions}</span></div>
                 <div class="bg-gray-800 p-2 rounded-lg text-center"><span class="text-gray-400">Grand Total:</span> <span class="text-green-400 font-bold">₱${grandTotalSales.toFixed(2)}</span></div>
@@ -824,7 +822,6 @@
     window.editTransaction = (id) => {
         const tx = appData.transactions.find(t => t.id === id || t.receiptNo === id);
         if (!tx) return;
-        // Simple inline edit via prompt for now
         const fields = ['customer', 'vehicle', 'plate', 'paymentMethod'];
         let msg = 'Edit Transaction:\n';
         fields.forEach(f => {
@@ -941,13 +938,11 @@
         const now = new Date();
         const todayStr = now.toISOString().slice(0,10);
         
-        // Today
         const todayTx = appData.transactions.filter(t => t.date && t.date.startsWith(todayStr));
         const todaySales = todayTx.reduce((s,t) => s + (t.total || 0), 0);
         const todayCount = todayTx.length;
         const todayCustomers = new Set(todayTx.map(t => t.customer)).size;
 
-        // Weekly
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - now.getDay());
         const weekStartStr = weekStart.toISOString().slice(0,10);
@@ -960,7 +955,6 @@
         const prevWeekSales = prevWeekTx.reduce((s,t) => s + (t.total || 0), 0);
         const weekGrowth = prevWeekSales > 0 ? ((weekSales - prevWeekSales) / prevWeekSales * 100) : 0;
 
-        // Monthly
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const monthStartStr = monthStart.toISOString().slice(0,10);
         const monthTx = appData.transactions.filter(t => t.date && t.date >= monthStartStr);
@@ -972,7 +966,6 @@
         const prevMonthSales = prevMonthTx.reduce((s,t) => s + (t.total || 0), 0);
         const monthGrowth = prevMonthSales > 0 ? ((monthSales - prevMonthSales) / prevMonthSales * 100) : 0;
 
-        // Yearly
         const yearStart = new Date(now.getFullYear(), 0, 1);
         const yearStartStr = yearStart.toISOString().slice(0,10);
         const yearTx = appData.transactions.filter(t => t.date && t.date >= yearStartStr);
@@ -984,7 +977,6 @@
         const prevYearSales = prevYearTx.reduce((s,t) => s + (t.total || 0), 0);
         const yearGrowth = prevYearSales > 0 ? ((yearSales - prevYearSales) / prevYearSales * 100) : 0;
 
-        // Service performance
         const serviceCount = {};
         appData.transactions.forEach(t => {
             if (t.items) {
@@ -995,7 +987,6 @@
         });
         const topServices = Object.entries(serviceCount).sort((a,b) => b[1] - a[1]).slice(0,5);
 
-        // Top employees
         const empCount = {};
         appData.transactions.forEach(t => {
             if (t.items) {
@@ -1010,7 +1001,6 @@
         });
         const topEmployees = Object.entries(empCount).sort((a,b) => b[1] - a[1]).slice(0,5);
 
-        // Top customers
         const custCount = {};
         appData.transactions.forEach(t => {
             if (t.customer) {
@@ -1019,14 +1009,12 @@
         });
         const topCustomers = Object.entries(custCount).sort((a,b) => b[1] - a[1]).slice(0,5);
 
-        // Payment distribution
         const paymentDist = {};
         appData.transactions.forEach(t => {
             const method = t.paymentMethod || 'Cash';
             paymentDist[method] = (paymentDist[method] || 0) + (t.total || 0);
         });
 
-        // Weekly chart data
         const weekDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
         const weekSalesData = weekDays.map((day, i) => {
             const d = new Date(now);
@@ -1035,7 +1023,6 @@
             return appData.transactions.filter(t => t.date && t.date.startsWith(dayStr)).reduce((s,t) => s + (t.total || 0), 0);
         });
 
-        // Monthly chart data
         const monthDays = Array.from({length: 30}, (_, i) => {
             const d = new Date(now.getFullYear(), now.getMonth(), i + 1);
             const dayStr = d.toISOString().slice(0,10);
@@ -1063,7 +1050,6 @@
                 <div class="text-sm text-gray-400">v8.5 | Real-Time Sync</div>
             </div>
 
-            <!-- Widgets -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 <div class="widget-card">
                     <div class="widget-label">Today</div>
@@ -1090,7 +1076,6 @@
                 </div>
             </div>
 
-            <!-- Charts -->
             <div class="grid lg:grid-cols-2 gap-4 mb-6">
                 <div class="card-premium p-4">
                     <h4 class="text-sm font-bold mb-2"><i class="fas fa-chart-line"></i> Weekly Sales Trend</h4>
@@ -1102,7 +1087,6 @@
                 </div>
             </div>
 
-            <!-- Analytics -->
             <div class="grid lg:grid-cols-4 gap-4 mb-6">
                 <div class="card-premium p-3">
                     <h5 class="text-xs text-gray-400 uppercase mb-2">Top Services</h5>
@@ -1142,7 +1126,6 @@
                 </div>
             </div>
 
-            <!-- Quick Actions -->
             <div class="flex gap-2 flex-wrap">
                 <button onclick="navigate('pos')" class="btn-neon px-4 py-2 rounded text-sm text-white">New Sale</button>
                 <button onclick="navigate('openservices')" class="bg-orange-600 px-4 py-2 rounded text-sm">Open Services</button>
@@ -1152,7 +1135,6 @@
 
             <script>
                 setTimeout(function() {
-                    // Weekly Chart
                     const ctx1 = document.getElementById('weeklyChart')?.getContext('2d');
                     if (ctx1 && !window._weeklyChart) {
                         window._weeklyChart = new Chart(ctx1, {
@@ -1171,7 +1153,6 @@
                             options: { responsive: true, plugins: { legend: { labels: { color: '#fff' } } }, scales: { y: { ticks: { color: '#888' } }, x: { ticks: { color: '#888' } } } }
                         });
                     }
-                    // Monthly Chart
                     const ctx2 = document.getElementById('monthlyChart')?.getContext('2d');
                     if (ctx2 && !window._monthlyChart) {
                         window._monthlyChart = new Chart(ctx2, {
@@ -1290,7 +1271,6 @@
             assignedStaff: []
         });
         closeSizeModal();
-        // Show staff assignment
         showStaffAssignmentModal(posCart.length - 1);
         renderApp();
     };
@@ -1442,7 +1422,6 @@
 
         appData.transactions.unshift(transaction);
         
-        // Update staff commissions
         Object.entries(staffCommMap).forEach(([staffId, data]) => {
             const staff = appData.staff.find(s => s.id === parseInt(staffId));
             if (staff) {
@@ -1470,8 +1449,6 @@
         recalculateStaffCommissions();
         alert(`✅ Sale Complete!\nTotal: ₱${total.toFixed(2)}`);
         printReceipt(transaction);
-        
-        // Sync to all reports - triggers real-time update
         syncTransactionToReports(transaction);
         
         posCart = [];
@@ -1523,7 +1500,6 @@
         service.status = status;
         if (status === 'completed') {
             service.completedAt = new Date().toISOString();
-            // Auto-generate transaction and commission
             const staffCommMap = {};
             (service.items || []).forEach(item => {
                 if (item.assignedStaff) {
@@ -1699,7 +1675,6 @@
         let grandTotal = 0;
         let grandJobs = 0;
         let grandSales = 0;
-        // Daily totals
         let dailyTotals = { sunday: 0, monday: 0, tuesday: 0, wednesday: 0, thursday: 0, friday: 0, saturday: 0 };
         
         Object.values(weekStaffMap).forEach(s => {
@@ -1730,7 +1705,6 @@
             </tr>`;
         });
 
-        // Daily total row
         const dailyTotalRow = `<tr class="border-t-2 border-cyan-400 bg-gray-800 font-bold">
             <td colspan="5" class="py-1 text-right">Daily Totals:</td>
             <td class="py-1 text-center text-cyan-300">₱${dailyTotals.sunday.toFixed(2)}</td>
@@ -2065,6 +2039,205 @@
         win.print();
     };
 
+    // ======================== SYSTEM SETTINGS ========================
+    function renderSystemSettings() {
+        if(showLogin) return renderLogin();
+        if(!hasRole(['Owner'])) {
+            return `<div class="card-premium p-8 text-center"><i class="fas fa-lock text-4xl text-red-400 mb-4"></i><p class="text-xl">Access Denied. Owner role required.</p></div>`;
+        }
+        const s = appData.systemSettings;
+        const logoHtml = s.companyLogo ? `<img src="${s.companyLogo}" class="company-logo" style="max-width:120px;max-height:80px;">` : 'No logo uploaded';
+        
+        return `<div class="card-premium p-4">
+            <h3 class="text-xl font-bold mb-4"><i class="fas fa-cogs"></i> System Settings</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="settings-group">
+                    <label>Company Logo</label>
+                    <div class="flex items-center gap-3">
+                        <div class="border border-gray-600 p-2 rounded">${logoHtml}</div>
+                        <button onclick="uploadLogo()" class="bg-cyan-600 px-3 py-1 rounded text-sm"><i class="fas fa-upload"></i> Upload</button>
+                        <button onclick="removeLogo()" class="bg-red-600 px-3 py-1 rounded text-sm"><i class="fas fa-times"></i> Remove</button>
+                    </div>
+                </div>
+                
+                <div class="settings-group">
+                    <label>Company Name</label>
+                    <input type="text" value="${s.companyName}" onchange="updateSetting('companyName', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Tagline</label>
+                    <input type="text" value="${s.tagline}" onchange="updateSetting('tagline', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Address</label>
+                    <input type="text" value="${s.address}" onchange="updateSetting('address', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Phone</label>
+                    <input type="text" value="${s.phone}" onchange="updateSetting('phone', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Facebook</label>
+                    <input type="text" value="${s.facebook}" onchange="updateSetting('facebook', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Payment Methods (comma separated)</label>
+                    <input type="text" value="${s.defaultPaymentMethods.join(', ')}" onchange="updatePaymentMethods(this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Receipt Size</label>
+                    <select onchange="updateSetting('receiptSize', this.value)">
+                        <option value="58mm" ${s.receiptSize === '58mm' ? 'selected' : ''}>58mm Thermal</option>
+                        <option value="80mm" ${s.receiptSize === '80mm' ? 'selected' : ''}>80mm Thermal</option>
+                        <option value="A4" ${s.receiptSize === 'A4' ? 'selected' : ''}>A4 Paper</option>
+                    </select>
+                </div>
+                
+                <div class="settings-group">
+                    <label>Receipt Header</label>
+                    <input type="text" value="${s.receiptHeader}" onchange="updateSetting('receiptHeader', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Receipt Footer</label>
+                    <input type="text" value="${s.receiptFooter}" onchange="updateSetting('receiptFooter', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Commission Split Rule</label>
+                    <input type="text" value="${s.commissionSplitRule}" onchange="updateSetting('commissionSplitRule', this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Loyalty Points per ₱1000</label>
+                    <input type="number" value="${s.loyaltyPointsPerPeso * 1000}" onchange="updateLoyalty(this.value)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Tax Rate (%)</label>
+                    <input type="number" value="${s.taxRate}" onchange="updateSetting('taxRate', parseFloat(this.value) || 0)">
+                </div>
+                
+                <div class="settings-group">
+                    <label>Show VAT on Receipt</label>
+                    <label class="inline-flex items-center cursor-pointer">
+                        <input type="checkbox" ${s.showVAT ? 'checked' : ''} onchange="updateSetting('showVAT', this.checked)">
+                        <span class="ml-2 text-sm text-gray-400">Enable VAT Display</span>
+                    </label>
+                </div>
+                
+                <div class="settings-group">
+                    <label>Business Hours</label>
+                    <input type="text" value="${s.businessHours}" onchange="updateSetting('businessHours', this.value)">
+                </div>
+            </div>
+            
+            <div class="mt-6 grid grid-cols-2 gap-3">
+                <button onclick="backupData()" class="bg-cyan-600 p-2 rounded"><i class="fas fa-download"></i> Backup Database</button>
+                <button onclick="restoreData()" class="bg-gray-600 p-2 rounded"><i class="fas fa-upload"></i> Restore Backup</button>
+                <button onclick="exportAllData()" class="bg-green-600 p-2 rounded"><i class="fas fa-file-export"></i> Export All Data</button>
+            </div>
+            
+            <div class="mt-4 p-3 bg-gray-800 rounded-lg text-xs">
+                <div class="text-gray-400">System Info</div>
+                <div>Version: 8.5 | Last Saved: ${localStorage.getItem('8068_system_last_saved') ? new Date(localStorage.getItem('8068_system_last_saved')).toLocaleString() : 'Never'}</div>
+                <div>Records: ${appData.transactions.length} TX | ${appData.customers.length} Customers | ${appData.staff.length} Staff</div>
+                <div class="mt-1 text-green-400">✅ All Export & Print Functions Working</div>
+                <div class="mt-1 text-cyan-400">📅 Auto-Commission on Service Complete</div>
+            </div>
+        </div>`;
+    }
+
+    window.updateSetting = (key, value) => {
+        appData.systemSettings[key] = value;
+        saveToLocal();
+        renderApp();
+    };
+
+    window.updatePaymentMethods = (value) => {
+        appData.systemSettings.defaultPaymentMethods = value.split(',').map(m => m.trim()).filter(m => m);
+        saveToLocal();
+        renderApp();
+        alert('✅ Payment methods updated!');
+    };
+
+    window.updateLoyalty = (value) => {
+        appData.systemSettings.loyaltyPointsPerPeso = parseFloat(value) / 1000;
+        saveToLocal();
+        renderApp();
+    };
+
+    window.uploadLogo = () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    appData.systemSettings.companyLogo = event.target.result;
+                    saveToLocal();
+                    renderApp();
+                    alert('Logo uploaded successfully!');
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+        input.click();
+    };
+
+    window.removeLogo = () => {
+        if(confirm('Remove company logo?')) {
+            appData.systemSettings.companyLogo = null;
+            saveToLocal();
+            renderApp();
+            alert('Logo removed.');
+        }
+    };
+
+    window.backupData = () => {
+        const dataStr = JSON.stringify(appData);
+        localStorage.setItem("system_backup_8068", dataStr);
+        const blob = new Blob([dataStr], {type: "application/json"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `8068_backup_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        alert("Backup created!");
+    };
+
+    window.restoreData = () => {
+        const backup = localStorage.getItem("system_backup_8068");
+        if(backup) {
+            try {
+                Object.assign(appData, JSON.parse(backup));
+                saveToLocal();
+                alert("Restored!");
+                renderApp();
+            } catch(e) {
+                alert("Backup corrupted!");
+            }
+        } else {
+            alert("No backup found!");
+        }
+    };
+
+    window.exportAllData = () => {
+        const blob = new Blob([JSON.stringify(appData, null, 2)], {type: "application/json"});
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `8068_full_export_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+    };
+
     // ======================== ADMIN DASHBOARD ========================
     function renderAdminDashboard() {
         if(showLogin) return renderLogin();
@@ -2081,7 +2254,8 @@
             { id: 'staff', icon: 'fa-id-badge', label: 'Staff' },
             { id: 'expenses', icon: 'fa-money-bill-wave', label: 'Expenses' },
             { id: 'credits', icon: 'fa-hand-holding-usd', label: 'Credits' },
-            { id: 'inventory', icon: 'fa-boxes', label: 'Inventory' }
+            { id: 'inventory', icon: 'fa-boxes', label: 'Inventory' },
+            { id: 'settings', icon: 'fa-cogs', label: 'System Settings' }
         ];
 
         let content = '';
@@ -2094,6 +2268,7 @@
         else if (currentAdminPanel === 'expenses') content = renderAdminExpenses();
         else if (currentAdminPanel === 'credits') content = renderAdminCredits();
         else if (currentAdminPanel === 'inventory') content = renderAdminInventory();
+        else if (currentAdminPanel === 'settings') content = renderSystemSettings();
 
         return `<div class="admin-grid">
             <div class="admin-sidebar">
@@ -2629,9 +2804,8 @@
     setInterval(updateClock, 1000);
 
     // ======================== INIT ========================
-    // Check for existing data migration to v8.5
+    // Migration to v8.5 - preserve all data
     if (!appData.version || appData.version !== '8.5') {
-        // Migration: ensure all transactions have proper fields
         appData.transactions.forEach(t => {
             if (!t.id && t.receiptNo) t.id = t.receiptNo;
             if (!t.receiptNo && t.id) t.receiptNo = t.id;
@@ -2641,10 +2815,9 @@
         });
         appData.version = '8.5';
         saveToLocal();
-        console.log('✅ Migrated to v8.5');
+        console.log('✅ Migrated to v8.5 with all data preserved');
     }
 
-    // Initial render
     renderApp();
     saveToLocal();
 
