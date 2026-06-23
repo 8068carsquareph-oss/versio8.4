@@ -129,6 +129,7 @@
         .settings-group label { color: #888; font-size: 12px; display: block; margin-bottom: 4px; }
         .settings-group input, .settings-group select { background: #0a0a0a; border: 1px solid #333; border-radius: 6px; padding: 6px 12px; color: white; width: 100%; }
         .settings-group input:focus, .settings-group select:focus { border-color: #00d4ff; outline: none; }
+        .category-badge { display: inline-block; background: rgba(0,212,255,0.15); color: #00d4ff; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; }
         .tab-container { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
         .tab-btn { background: #1a1a1a; border: 1px solid #333; padding: 6px 14px; border-radius: 6px; color: #aaa; cursor: pointer; transition: all 0.2s; font-size: 12px; }
         .tab-btn:hover { border-color: #00d4ff; color: #fff; }
@@ -1221,7 +1222,8 @@
 
         let servicesHtml = categories.map(cat => {
             const catServices = activeServices.filter(s => s.category === cat);
-            return `<div class="mb-4"><h4 class="text-sm font-bold text-cyan-400 mb-2">${cat}</h4><div class="grid grid-cols-2 md:grid-cols-3 gap-2">${catServices.map(s => `
+            if(catServices.length === 0) return '';
+            return `<div class="mb-4"><h4 class="text-sm font-bold text-cyan-400 mb-2"><span class="category-badge">${cat}</span></h4><div class="grid grid-cols-2 md:grid-cols-3 gap-2">${catServices.map(s => `
                 <div class="service-btn bg-gray-900 p-2 rounded-lg text-center" onclick="showSizeModal('${s.id}')">
                     <div class="text-xs font-bold">${s.name}</div>
                     <div class="text-cyan-300 text-xs">From ₱${Object.values(s.prices || {})[0] || 0}</div>
@@ -1266,6 +1268,7 @@
     window.showSizeModal = (serviceId) => {
         const service = appData.services.find(s => s.id === serviceId);
         if (!service) return;
+        if (!service.isActive) { alert('This service is currently inactive.'); return; }
         const sizes = Object.keys(service.prices || {});
         let sizeHtml = sizes.map(size => `
             <div class="size-option bg-gray-800 p-3 rounded-lg cursor-pointer hover:bg-cyan-500 hover:text-black transition-all m-1 inline-block" data-size="${size}" data-price="${service.prices[size]}">
@@ -1305,7 +1308,10 @@
             assignedStaff: []
         });
         closeSizeModal();
-        showStaffAssignmentModal(posCart.length - 1);
+        // Show staff assignment modal if there are staff members
+        if (appData.staff.length > 0) {
+            showStaffAssignmentModal(posCart.length - 1);
+        }
         renderApp();
     };
 
@@ -1315,10 +1321,14 @@
         const item = posCart[cartIndex];
         if (!item) return;
         const activeStaff = appData.staff.filter(s => s.isActive !== false);
+        if (activeStaff.length === 0) {
+            // Skip staff assignment if no staff available
+            return;
+        }
         let staffHtml = activeStaff.map(s => `
             <label class="flex items-center gap-2 p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700 text-sm">
                 <input type="checkbox" value="${s.id}" class="staff-checkbox" data-name="${s.name}" data-tier="${s.commissionTier || 35}">
-                <span>${s.name}</span> <span class="text-xs text-gray-400">(${s.position})</span>
+                <span>${s.name}</span> <span class="text-xs text-gray-400">(${s.position || 'Staff'})</span>
                 <span class="commission-badge ml-auto">${s.commissionTier || 35}%</span>
             </label>
         `).join('');
@@ -2331,7 +2341,7 @@
                     <tbody>${appData.services.map(s => `
                         <tr class="border-b border-gray-700">
                             <td class="py-1">${s.name}</td>
-                            <td>${s.category || 'General'}</td>
+                            <td><span class="category-badge">${s.category || 'General'}</span></td>
                             <td class="text-xs">${Object.keys(s.prices || {}).join(', ')}</td>
                             <td class="text-xs">${Object.entries(s.prices || {}).map(([k,v]) => `${k}:₱${v}`).join(' ')}</td>
                             <td><span class="text-${s.isActive !== false ? 'green' : 'red'}-400">${s.isActive !== false ? 'Active' : 'Inactive'}</span></td>
@@ -2347,13 +2357,19 @@
     }
 
     window.showAddServiceModal = () => {
+        const categoryOptions = appData.categories.map(c => `<option>${c}</option>`).join('');
         let modalHtml = `<div id="adminModal" class="modal"><div class="modal-content">
             <h3 class="text-xl font-bold mb-4">Add Service</h3>
             <div class="space-y-3">
                 <div><label class="text-gray-400">Name</label><input type="text" id="svcName" class="w-full bg-gray-800 p-2 rounded"></div>
-                <div><label class="text-gray-400">Category</label><input type="text" id="svcCategory" class="w-full bg-gray-800 p-2 rounded" placeholder="Basic Wash"></div>
-                <div><label class="text-gray-400">Sizes (comma)</label><input type="text" id="svcSizes" class="w-full bg-gray-800 p-2 rounded" placeholder="Small, Medium, Large"></div>
-                <div><label class="text-gray-400">Prices (comma, matching sizes)</label><input type="text" id="svcPrices" class="w-full bg-gray-800 p-2 rounded" placeholder="200, 300, 400"></div>
+                <div><label class="text-gray-400">Description</label><input type="text" id="svcDesc" class="w-full bg-gray-800 p-2 rounded"></div>
+                <div><label class="text-gray-400">Category</label>
+                    <select id="svcCategory" class="w-full bg-gray-800 p-2 rounded">
+                        ${categoryOptions}
+                    </select>
+                </div>
+                <div><label class="text-gray-400">Sizes (comma separated)</label><input type="text" id="svcSizes" class="w-full bg-gray-800 p-2 rounded" placeholder="Small, Medium, Large"></div>
+                <div><label class="text-gray-400">Prices (comma separated, matching sizes)</label><input type="text" id="svcPrices" class="w-full bg-gray-800 p-2 rounded" placeholder="200, 300, 400"></div>
                 <div class="flex gap-3"><button onclick="confirmAddService()" class="btn-neon flex-1 p-2 rounded text-white">Create</button><button onclick="closeAdminModal()" class="bg-gray-700 flex-1 p-2 rounded">Cancel</button></div>
             </div>
         </div></div>`;
@@ -2363,19 +2379,36 @@
     window.confirmAddService = () => {
         const name = document.getElementById('svcName')?.value?.trim();
         if (!name) { alert('Name required!'); return; }
+        const desc = document.getElementById('svcDesc')?.value || '';
+        const category = document.getElementById('svcCategory')?.value || 'Specialty';
         const sizes = document.getElementById('svcSizes')?.value.split(',').map(s => s.trim()) || [];
         const prices = document.getElementById('svcPrices')?.value.split(',').map(p => parseFloat(p.trim())) || [];
         const pricesObj = {};
         sizes.forEach((s, i) => { if (prices[i]) pricesObj[s] = prices[i]; });
-        appData.services.push({
+        
+        const newService = {
             id: Date.now(),
             name: name.toUpperCase(),
-            category: document.getElementById('svcCategory')?.value || 'General',
+            desc: desc,
+            category: category,
             sizes: sizes,
             prices: pricesObj,
-            isActive: true,
-            desc: ''
+            isActive: true
+        };
+        appData.services.push(newService);
+        
+        // Update commission matrix for this service
+        sizes.forEach(size => {
+            const price = pricesObj[size];
+            if (price) {
+                const tier30 = Math.round(price * 0.26);
+                const tier35 = Math.round(price * 0.30);
+                const tier40 = Math.round(price * 0.35);
+                const key = `${name.toUpperCase()}_${size}`;
+                appData.commissionMatrix[key] = [tier30, tier35, tier40];
+            }
         });
+        
         saveToLocal();
         closeAdminModal();
         alert('✅ Service added!');
@@ -2386,14 +2419,39 @@
         const s = appData.services.find(sv => sv.id === id);
         if (!s) return;
         const val = prompt('Edit name:', s.name);
-        if (val) { s.name = val.toUpperCase(); saveToLocal(); renderApp(); }
+        if (val) { 
+            const oldName = s.name;
+            s.name = val.toUpperCase();
+            // Update commission matrix keys
+            const newMatrix = {};
+            Object.keys(appData.commissionMatrix).forEach(key => {
+                if (key.startsWith(oldName)) {
+                    const newKey = key.replace(oldName, s.name);
+                    newMatrix[newKey] = appData.commissionMatrix[key];
+                } else {
+                    newMatrix[key] = appData.commissionMatrix[key];
+                }
+            });
+            appData.commissionMatrix = newMatrix;
+            saveToLocal(); 
+            renderApp(); 
+        }
     };
 
     window.deleteService = (id) => {
         if (confirm('Delete this service?')) {
-            appData.services = appData.services.filter(s => s.id !== id);
-            saveToLocal();
-            renderApp();
+            const service = appData.services.find(s => s.id === id);
+            if (service) {
+                // Remove commission entries
+                Object.keys(appData.commissionMatrix).forEach(key => {
+                    if (key.startsWith(service.name)) {
+                        delete appData.commissionMatrix[key];
+                    }
+                });
+                appData.services = appData.services.filter(s => s.id !== id);
+                saveToLocal();
+                renderApp();
+            }
         }
     };
 
