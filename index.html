@@ -938,14 +938,12 @@
         const now = new Date();
         const todayStr = now.toISOString().slice(0,10);
         
-        // Today
         const todayTx = appData.transactions.filter(t => t.date && t.date.startsWith(todayStr));
         const todaySales = todayTx.reduce((s,t) => s + (t.total || 0), 0);
         const todayCount = todayTx.length;
         const todayCustomers = new Set(todayTx.map(t => t.customer)).size;
         const todayExpenses = appData.expenses.filter(e => e.date === todayStr).reduce((s,e) => s + (e.amount || 0), 0);
         
-        // Weekly
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - now.getDay());
         const weekStartStr = weekStart.toISOString().slice(0,10);
@@ -958,7 +956,6 @@
         const prevWeekSales = prevWeekTx.reduce((s,t) => s + (t.total || 0), 0);
         const weekGrowth = prevWeekSales > 0 ? ((weekSales - prevWeekSales) / prevWeekSales * 100) : 0;
 
-        // Monthly
         const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
         const monthStartStr = monthStart.toISOString().slice(0,10);
         const monthTx = appData.transactions.filter(t => t.date && t.date >= monthStartStr);
@@ -972,7 +969,6 @@
         const monthExpenses = appData.expenses.filter(e => e.date && e.date >= monthStartStr).reduce((s,e) => s + (e.amount || 0), 0);
         const monthNetProfit = monthSales - monthExpenses;
 
-        // Yearly
         const yearStart = new Date(now.getFullYear(), 0, 1);
         const yearStartStr = yearStart.toISOString().slice(0,10);
         const yearTx = appData.transactions.filter(t => t.date && t.date >= yearStartStr);
@@ -984,15 +980,11 @@
         const prevYearSales = prevYearTx.reduce((s,t) => s + (t.total || 0), 0);
         const yearGrowth = prevYearSales > 0 ? ((yearSales - prevYearSales) / prevYearSales * 100) : 0;
 
-        // Outstanding Credit
         const totalCredit = appData.credits.reduce((s, c) => s + (c.balance || 0), 0);
-        
-        // Total Revenue & Commission
         const totalRevenue = appData.transactions.reduce((s,t) => s + (t.total || 0), 0);
         const totalCommission = appData.staff.reduce((sum, s) => sum + (s.totalCommission || 0), 0);
         const totalExpenses = appData.expenses.reduce((s,e) => s + (e.amount || 0), 0);
 
-        // Service performance
         const serviceCount = {};
         appData.transactions.forEach(t => {
             if (t.items) {
@@ -1066,7 +1058,6 @@
                 <div class="text-sm text-gray-400">v8.5 | Real-Time Sync</div>
             </div>
 
-            <!-- Stats Cards -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 <div class="widget-card">
                     <div class="widget-label">Today's Sales</div>
@@ -1094,7 +1085,6 @@
                 </div>
             </div>
 
-            <!-- Additional Stats -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                 <div class="bg-gray-800 p-3 rounded-lg text-center">
                     <div class="stat-label">Total Revenue</div>
@@ -1114,7 +1104,6 @@
                 </div>
             </div>
 
-            <!-- Charts -->
             <div class="grid lg:grid-cols-2 gap-4 mb-6">
                 <div class="card-premium p-4">
                     <h4 class="text-sm font-bold mb-2"><i class="fas fa-chart-line"></i> Weekly Sales Trend</h4>
@@ -1126,7 +1115,6 @@
                 </div>
             </div>
 
-            <!-- Analytics -->
             <div class="grid lg:grid-cols-4 gap-4 mb-6">
                 <div class="card-premium p-3">
                     <h5 class="text-xs text-gray-400 uppercase mb-2">Top Services</h5>
@@ -1166,7 +1154,6 @@
                 </div>
             </div>
 
-            <!-- Quick Actions -->
             <div class="flex gap-2 flex-wrap">
                 <button onclick="navigate('pos')" class="btn-neon px-4 py-2 rounded text-sm text-white">New Sale</button>
                 <button onclick="navigate('openservices')" class="bg-orange-600 px-4 py-2 rounded text-sm">Open Services</button>
